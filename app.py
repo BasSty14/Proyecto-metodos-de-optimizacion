@@ -477,7 +477,12 @@ def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
         contours=dict(coloring='heatmap', showlabels=True,
                       labelfont=dict(size=10, color='white')),
         opacity=0.55,
-        colorbar=dict(tickfont=dict(color='#8b949e'))
+        colorbar=dict(
+            tickfont=dict(color='#8b949e'),
+            x=1.15,
+            len=0.75,
+            thickness=15,
+        )
     ))
 
     for method, history in histories.items():
@@ -502,7 +507,18 @@ def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
                    font=dict(color='#c9d1d9')),
         xaxis_title='x₁', yaxis_title='x₂',
         height=440, **DARK,
-        margin=dict(t=50, b=30, l=40, r=20)
+        margin=dict(t=50, b=30, l=40, r=120),   # ← r más grande para dar espacio al colorbar
+        legend=dict(
+            bgcolor='#1c2128',
+            bordercolor='#30363d',
+            borderwidth=1,
+            font=dict(color='#e6edf3'),
+            orientation='h',        # horizontal
+            yanchor='bottom',
+            y=-0.2,                 # debajo del gráfico
+            xanchor='center',
+            x=0.5
+        )
     )
     return fig
 
