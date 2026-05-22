@@ -296,7 +296,7 @@ def gradient_descent(f, grad_f, x0, max_iter, tol, c1, c2, strong):
     x    = x0.copy()
     hist = []
 
-    for i in range(max_iter):
+    for i in range(max_iter + 1):
         g      = grad_f(x)
         norm_g = np.linalg.norm(g)
         hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
@@ -324,7 +324,7 @@ def conjugate_gradient(f, grad_f, x0, max_iter, tol, c1, c2, strong):
     n    = len(x0)
     hist = []
 
-    for i in range(max_iter):
+    for i in range(max_iter + 1):
         norm_g = np.linalg.norm(g)
         hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
 
@@ -361,7 +361,7 @@ def newton_method(f, grad_f, hess_f, x0, max_iter, tol, c1, c2, strong):
     x    = x0.copy()
     hist = []
 
-    for i in range(max_iter):
+    for i in range(max_iter + 1):
         g      = grad_f(x)
         norm_g = np.linalg.norm(g)
         hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
