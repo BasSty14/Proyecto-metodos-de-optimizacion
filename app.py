@@ -477,12 +477,7 @@ def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
         contours=dict(coloring='heatmap', showlabels=True,
                       labelfont=dict(size=10, color='white')),
         opacity=0.55,
-        colorbar=dict(
-            tickfont=dict(color='#8b949e'),
-            x=1.15,
-            len=0.75,
-            thickness=15,
-        )
+        colorbar=dict(tickfont=dict(color='#8b949e'))
     ))
 
     for method, history in histories.items():
