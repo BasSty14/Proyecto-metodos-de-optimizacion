@@ -308,8 +308,7 @@ def gradient_descent(f, grad_f, x0, max_iter, tol, c1, c2, strong):
         alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
         x     = x + alpha * d
 
-    g = grad_f(x)
-    hist.append({'iter': len(hist), 'x': x.copy(), 'f': f(x), 'grad_norm': np.linalg.norm(g)})
+    
 
     return x, hist, hist[-1]['grad_norm'] <= tol
 
@@ -348,8 +347,7 @@ def conjugate_gradient(f, grad_f, x0, max_iter, tol, c1, c2, strong):
         x = x_new
         g = g_new
 
-    g = grad_f(x)
-    hist.append({'iter': len(hist), 'x': x.copy(), 'f': f(x), 'grad_norm': np.linalg.norm(g)})
+    
 
     return x, hist, hist[-1]['grad_norm'] <= tol
 
