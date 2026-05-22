@@ -454,6 +454,10 @@ def plot_convergence(histories: dict) -> go.Figure:
     fig.update_layout(height=400, **DARK,
                       margin=dict(t=50, b=30, l=40, r=20))
     fig.update_annotations(font_color='#c9d1d9')
+    fig.update_xaxes(title_text="Iteración", row=1, col=1)
+    fig.update_xaxes(title_text="Iteración", row=1, col=2)
+    fig.update_yaxes(title_text="‖∇f(x)‖", row=1, col=1)
+    fig.update_yaxes(title_text="f(x)", row=1, col=2)
     return fig
 
 
@@ -778,9 +782,21 @@ cols = st.columns(len(results))
 for col, (method, res) in zip(cols, results.items()):
     with col:
         icon  = method_icons.get(method, '🔧')
-        badge = '<span class="badge-ok">✅ Convergió</span>' if res['converged'] \
-                else '<span class="badge-fail">⚠️ No convergió</span>'
         x_str = ', '.join([f'{v:.6f}' for v in res['x']])
+
+        st.markdown(f"### {icon} {method}")
+
+        if res['converged']:
+            st.success("✅ Convergió")
+        else:
+            st.error("⚠️ No convergió")
+
+        st.metric("f(x*) — valor óptimo",   f"{res['f']:.8f}")
+        st.metric("Iteraciones realizadas",  res['iters'])
+        st.metric("Error final ‖∇f(x*)‖",   f"{res['grad_norm']:.3e}")
+        st.caption(f"**Punto mínimo x*:** ({x_str})")
+        st.caption(f"**Criterio de parada:** {'‖∇f‖ ≤ ' + f'{tol:.0e}' if res['converged'] else 'Máx. iteraciones'}")
+        st.divider()
 
         st.markdown(f"""
         <div class="card">
