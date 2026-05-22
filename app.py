@@ -798,32 +798,7 @@ for col, (method, res) in zip(cols, results.items()):
         st.caption(f"**Criterio de parada:** {'‖∇f‖ ≤ ' + f'{tol:.0e}' if res['converged'] else 'Máx. iteraciones'}")
         st.divider()
 
-        st.markdown(f"""
-        <div class="card">
-            <div class="method-header">
-                <span class="method-icon">{icon}</span>
-                <span class="method-name">{method}</span>
-
-            <div class="card-title">Punto mínimo x*</div>
-            <div class="card-value" style="font-size:1.0em;">({x_str})</div>
-
-            <br>
-            <div class="card-title">f(x*) — valor óptimo</div>
-            <div class="card-value">{res['f']:.8f}</div>
-
-            <br>
-            <div class="card-title">Iteraciones realizadas</div>
-            <div class="card-value">{res['iters']}</div>
-
-            <br>
-            <div class="card-title">Error final ‖∇f(x*)‖</div>
-            <div class="card-value" style="font-size:1.1em;">{res['grad_norm']:.3e}</div>
-
-            <br>
-            <div class="card-title">Criterio de parada</div>
-            <div class="card-sub">{'‖∇f‖ ≤ tolerancia (' + f"{tol:.0e}" + ')' if res['converged'] else 'Máximo de iteraciones alcanzado'}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        
 
 
 # ── Gráfico de convergencia ───────────────────────────────────────────────────
