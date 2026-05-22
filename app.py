@@ -698,12 +698,16 @@ with st.spinner("⚙️ Calculando gradiente y Hessiana simbólicos..."):
 
 # Mostrar función parseada en LaTeX
 latex_expr = sp.latex(expr)
-st.markdown(f"""
-<div class="card" style="text-align:center; margin-bottom:24px;">
+st.markdown("""
+<div class="card" style="text-align:center; margin-bottom:4px;">
     <div class="card-title">Función objetivo reconocida</div>
-    <div style="font-size:1.25em; color:#e6edf3; padding:10px 0;">
-        f(x) = {latex_expr}
-    </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.latex(f"f(x) = {latex_expr}")
+
+st.markdown(f"""
+<div class="card" style="text-align:center; margin-top:4px; margin-bottom:24px;">
     <div class="card-sub">Variables: {', '.join([str(v) for v in sym_vars])} &nbsp;|&nbsp;
     Punto de partida: x₀ = ({', '.join([str(v) for v in x0])})</div>
 </div>
