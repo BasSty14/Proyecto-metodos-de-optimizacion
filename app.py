@@ -507,15 +507,17 @@ def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
                    font=dict(color='#c9d1d9')),
         xaxis_title='x₁', yaxis_title='x₂',
         height=440, **DARK,
-        margin=dict(t=50, b=30, l=40, r=120),   # ← r más grande para dar espacio al colorbar
+        margin=dict(t=50, b=30, l=40, r=120),
+    )
+    fig.update_layout(
         legend=dict(
             bgcolor='#1c2128',
             bordercolor='#30363d',
             borderwidth=1,
             font=dict(color='#e6edf3'),
-            orientation='h',        # horizontal
+            orientation='h',
             yanchor='bottom',
-            y=-0.2,                 # debajo del gráfico
+            y=-0.2,
             xanchor='center',
             x=0.5
         )
