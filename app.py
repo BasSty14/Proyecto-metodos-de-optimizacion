@@ -529,7 +529,8 @@ with st.sidebar:
     st.markdown("---")
 
     # Variables
-    n_vars = st.selectbox("🔢 Número de variables", [1, 2, 3, 4, 5], index=1)
+    n_vars = st.number_input("🔢 Número de variables", min_value=1, max_value=50, value=2, step=1)
+    n_vars = int(n_vars)
 
     # Métodos
     st.markdown("**🧮 Métodos a ejecutar**")
