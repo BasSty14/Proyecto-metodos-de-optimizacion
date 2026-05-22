@@ -803,9 +803,6 @@ for col, (method, res) in zip(cols, results.items()):
             <div class="method-header">
                 <span class="method-icon">{icon}</span>
                 <span class="method-name">{method}</span>
-            </div>
-            {badge}
-            <br><br>
 
             <div class="card-title">Punto mínimo x*</div>
             <div class="card-value" style="font-size:1.0em;">({x_str})</div>
