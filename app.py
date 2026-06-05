@@ -878,3 +878,385 @@ st.markdown("""
     Condiciones de Wolfe según <em>Nocedal & Wright — Numerical Optimization, 2ª ed.</em>
 </div>
 """, unsafe_allow_html=True)
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from scipy.optimize import minimize as scipy_minimize
+
+def build_2d_fns(expr_str):
+    """Parsea función de 2 variables usando x, y."""
+    xs, ys = sp.symbols('x y')
+    local  = {'x': xs, 'y': ys}
+    expr   = sp.sympify(expr_str, locals=local)
+    _f  = sp.lambdify((xs, ys), expr,                   modules='numpy')
+    _gx = sp.lambdify((xs, ys), sp.diff(expr, xs),      modules='numpy')
+    _gy = sp.lambdify((xs, ys), sp.diff(expr, ys),      modules='numpy')
+    def fn(pt):
+        return float(np.real(_f(pt[0], pt[1])))
+    def gn(pt):
+        return np.array([float(np.real(_gx(pt[0], pt[1]))),
+                         float(np.real(_gy(pt[0], pt[1])))], dtype=float)
+    return fn, gn, expr
+
+
+def solve_kkt(f_str, eq_strs, ineq_strs, x0):
+    """
+    Resuelve optimización restringida en 2D y calcula condiciones KKT.
+    Restricciones de igualdad:    g(x,y) = 0
+    Restricciones de desigualdad: h(x,y) ≤ 0
+    """
+    f_fn, f_gn, f_expr = build_2d_fns(f_str)
+
+    eq_data   = [dict(zip(('fn','gn','expr'), build_2d_fns(s)))
+                 for s in eq_strs if s.strip()]
+    ineq_data = [dict(zip(('fn','gn','expr'), build_2d_fns(s)))
+                 for s in ineq_strs if s.strip()]
+
+    # scipy 'ineq' requiere fun(x) >= 0, entonces negamos h(x) ≤ 0
+    constraints = (
+        [{'type': 'eq',   'fun': d['fn'], 'jac': d['gn']} for d in eq_data] +
+        [{'type': 'ineq', 'fun': lambda pt, d=d: -d['fn'](pt),
+                          'jac': lambda pt, d=d: -d['gn'](pt)} for d in ineq_data]
+    )
+
+    res = scipy_minimize(f_fn, x0, method='SLSQP', jac=f_gn,
+                         constraints=constraints, tol=1e-10,
+                         options={'maxiter': 2000, 'ftol': 1e-10})
+    x_star = res.x
+
+    # Multiplicadores: resuelve sistema KKT de estacionariedad
+    # ∇f(x*) + Σ λᵢ∇gᵢ(x*) + Σ μⱼ∇hⱼ(x*) = 0  →  A·m = -∇f
+    all_grads = [d['gn'](x_star) for d in eq_data + ineq_data]
+    mults = []
+    if all_grads:
+        A = np.column_stack(all_grads)
+        m, _, _, _ = np.linalg.lstsq(A, -f_gn(x_star), rcond=None)
+        mults = m.tolist()
+
+    EPS = 1e-4
+    n_eq = len(eq_data)
+
+    # ── Verificación de condiciones KKT ──────────────────────────────────────
+    # 1. Estacionariedad
+    residual = f_gn(x_star).copy()
+    for i, d in enumerate(eq_data + ineq_data):
+        if i < len(mults):
+            residual += mults[i] * d['gn'](x_star)
+    stat_norm = np.linalg.norm(residual)
+
+    # 2. Factibilidad primal — igualdad
+    eq_vals  = [d['fn'](x_star)  for d in eq_data]
+
+    # 3. Factibilidad primal — desigualdad
+    ineq_vals = [d['fn'](x_star) for d in ineq_data]
+
+    # 4. Factibilidad dual (μⱼ ≥ 0)
+    mu_vals = [mults[n_eq + i] for i in range(len(ineq_data))] if mults else []
+
+    # 5. Holgura complementaria (μⱼ · hⱼ(x*) = 0)
+    comp_vals = [abs(mu_vals[i] * ineq_vals[i]) for i in range(len(ineq_data))]
+
+    return {
+        'x_star':    x_star,
+        'f_star':    f_fn(x_star),
+        'success':   res.success,
+        'message':   res.message,
+        'f_fn':      f_fn,
+        'f_gn':      f_gn,
+        'f_expr':    f_expr,
+        'eq_data':   eq_data,
+        'ineq_data': ineq_data,
+        'mults':     mults,
+        'n_eq':      n_eq,
+        'kkt': {
+            'stationarity':     (stat_norm      < EPS,  stat_norm),
+            'eq_feasibility':   [(abs(v)         < EPS,  v)  for v in eq_vals],
+            'ineq_feasibility': [(v              <= EPS, v)  for v in ineq_vals],
+            'dual_feasibility': [(v              >= -EPS,v)  for v in mu_vals],
+            'comp_slackness':   [(v              < EPS,  v)  for v in comp_vals],
+        }
+    }
+
+
+def plot_kkt_2d(data):
+    """Contorno de f + curvas de restricción + vectores gradiente en x*."""
+    x_star, f_fn = data['x_star'], data['f_fn']
+    pad = max(2.5, np.abs(x_star).max() * 1.5 + 1.5)
+    xr  = np.linspace(x_star[0]-pad, x_star[0]+pad, 130)
+    yr  = np.linspace(x_star[1]-pad, x_star[1]+pad, 130)
+    X, Y = np.meshgrid(xr, yr)
+    Z = np.vectorize(lambda a, b: f_fn([a, b]))(X, Y)
+
+    fig = go.Figure()
+
+    # Contorno de f
+    fig.add_trace(go.Contour(
+        x=xr, y=yr, z=Z, colorscale='Blues', opacity=0.50,
+        showscale=True,
+        contours=dict(coloring='heatmap', showlabels=True,
+                      labelfont=dict(size=9, color='white')),
+        colorbar=dict(x=1.13, thickness=13, tickfont=dict(color='#8b949e'))
+    ))
+
+    EQ_COLORS   = ['#f7b731', '#a29bfe', '#fd79a8']
+    INEQ_COLORS = ['#00b894', '#e17055']
+
+    # Restricciones de igualdad — curva g(x,y)=0
+    for i, d in enumerate(data['eq_data']):
+        Gc = np.vectorize(lambda a, b, d=d: d['fn']([a, b]))(X, Y)
+        c  = EQ_COLORS[i % len(EQ_COLORS)]
+        fig.add_trace(go.Contour(
+            x=xr, y=yr, z=Gc, showscale=False,
+            contours=dict(start=0, end=0, size=1e-6, coloring='lines',
+                          showlabels=True, labelfont=dict(size=10, color=c)),
+            line=dict(color=c, width=3),
+            name=f'g{i+1}(x,y) = 0'
+        ))
+
+    # Restricciones de desigualdad — frontera h(x,y)=0
+    for i, d in enumerate(data['ineq_data']):
+        Hc = np.vectorize(lambda a, b, d=d: d['fn']([a, b]))(X, Y)
+        c  = INEQ_COLORS[i % len(INEQ_COLORS)]
+        fig.add_trace(go.Contour(
+            x=xr, y=yr, z=Hc, showscale=False,
+            contours=dict(start=0, end=0, size=1e-6, coloring='lines'),
+            line=dict(color=c, width=2.5, dash='dash'),
+            name=f'h{i+1}(x,y) = 0  (frontera)'
+        ))
+
+    # Vectores gradiente en x*
+    scale = pad * 0.28
+    mults, n_eq = data['mults'], data['n_eq']
+
+    def add_arrow(vec, color, label):
+        norm = np.linalg.norm(vec)
+        if norm < 1e-10: return
+        uv = vec / norm * scale
+        fig.add_annotation(
+            x=x_star[0]+uv[0], y=x_star[1]+uv[1],
+            ax=x_star[0], ay=x_star[1],
+            xref='x', yref='y', axref='x', ayref='y',
+            arrowhead=3, arrowsize=1.5, arrowwidth=2.5,
+            arrowcolor=color,
+            text=f'<b>{label}</b>',
+            font=dict(color=color, size=12)
+        )
+
+    add_arrow(data['f_gn'](x_star), '#74b9ff', '∇f')
+    for i, d in enumerate(data['eq_data']):
+        if i < len(mults):
+            add_arrow(mults[i] * d['gn'](x_star),
+                      EQ_COLORS[i % len(EQ_COLORS)], f'λ{i+1}∇g{i+1}')
+    for i, d in enumerate(data['ineq_data']):
+        idx = n_eq + i
+        if idx < len(mults):
+            add_arrow(mults[idx] * d['gn'](x_star),
+                      INEQ_COLORS[i % len(INEQ_COLORS)], f'μ{i+1}∇h{i+1}')
+
+    # Punto óptimo
+    fig.add_trace(go.Scatter(
+        x=[x_star[0]], y=[x_star[1]], mode='markers',
+        name=f'x* = ({x_star[0]:.4f}, {x_star[1]:.4f})',
+        marker=dict(symbol='star', size=20, color='#f85149',
+                    line=dict(color='white', width=1.5))
+    ))
+
+    fig.update_layout(
+        title=dict(text='Región factible, restricciones y punto óptimo',
+                   font=dict(color='#c9d1d9')),
+        xaxis_title='x', yaxis_title='y',
+        height=480, **DARK,
+        margin=dict(t=50, b=80, l=40, r=130)
+    )
+    fig.update_layout(legend=dict(
+        bgcolor='#1c2128', bordercolor='#30363d', borderwidth=1,
+        font=dict(color='#e6edf3'), orientation='h',
+        yanchor='bottom', y=-0.28, xanchor='center', x=0.5
+    ))
+    return fig
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECCIÓN DE VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+st.markdown("---")
+st.markdown("""
+<div class="app-header" style="margin-top:10px;">
+    <div class="app-title" style="font-size:1.9em;">🔒 Optimización Restringida</div>
+    <div class="app-sub">
+        Multiplicadores de Lagrange · Condiciones KKT<br>
+        <span style="color:#7c6af5; font-weight:600;">
+            min f(x,y) &nbsp;s.a.&nbsp; g(x,y)=0 &nbsp;/&nbsp; h(x,y)≤0
+        </span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+with st.expander("📖 ¿Qué son las condiciones KKT?", expanded=False):
+    st.markdown("""
+    Las **condiciones de Karush-Kuhn-Tucker (KKT)** son condiciones necesarias de optimalidad
+    para problemas de optimización con restricciones. Generalizan los multiplicadores de Lagrange
+    al caso con restricciones de desigualdad.
+
+    Para el problema: **min f(x)** s.a. **gᵢ(x)=0**, **hⱼ(x)≤0**
+
+    Un punto x* es óptimo local solo si existen multiplicadores λᵢ y μⱼ tales que:
+
+    | # | Condición | Expresión |
+    |---|-----------|-----------|
+    | 1 | **Estacionariedad** | ∇f(x*) + Σλᵢ∇gᵢ(x*) + Σμⱼ∇hⱼ(x*) = 0 |
+    | 2 | **Factibilidad primal (igualdad)** | gᵢ(x*) = 0 |
+    | 3 | **Factibilidad primal (desigualdad)** | hⱼ(x*) ≤ 0 |
+    | 4 | **Factibilidad dual** | μⱼ ≥ 0 |
+    | 5 | **Holgura complementaria** | μⱼ · hⱼ(x*) = 0 |
+
+    La condición 1 dice que los **gradientes deben ser paralelos** en el óptimo,
+    lo que se puede ver visualmente en el gráfico.
+    """)
+
+# ── Inputs ────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-label">⚙️ Configuración del problema restringido</div>',
+            unsafe_allow_html=True)
+
+kkt_col1, kkt_col2 = st.columns(2)
+
+with kkt_col1:
+    kkt_f    = st.text_input("Función objetivo f(x, y)",
+                              value="x**2 + y**2",
+                              key="kkt_f",
+                              help="Variables: x e y")
+    kkt_x0   = st.text_input("Punto inicial (x, y)",
+                              value="0.5, 0.5", key="kkt_x0")
+    n_eq_kkt = st.number_input("Nº restricciones de igualdad   g(x,y) = 0",
+                                min_value=0, max_value=3, value=1, key="n_eq_kkt")
+    eq_inputs = []
+    for i in range(int(n_eq_kkt)):
+        val = "x + y - 1" if i == 0 else ""
+        eq_inputs.append(st.text_input(f"g{i+1}(x,y) = 0", value=val, key=f"eq_kkt_{i}"))
+
+with kkt_col2:
+    st.markdown("""
+    <div class="card" style="margin-top:4px;">
+        <div class="card-title">💡 Ejemplos para probar</div>
+        <div class="card-sub">
+            <b>Clásico Lagrange:</b><br>
+            f = x² + y² &nbsp;|&nbsp; g = x+y-1=0<br><br>
+            <b>Con desigualdad:</b><br>
+            f = (x-3)²+(y-2)² &nbsp;|&nbsp; h = x²+y²-4 ≤ 0<br><br>
+            <b>Producción (Cobb-Douglas):</b><br>
+            f = -(x**0.5 * y**0.5) &nbsp;|&nbsp; g = 2*x+3*y-12=0
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    n_ineq_kkt = st.number_input("Nº restricciones de desigualdad   h(x,y) ≤ 0",
+                                  min_value=0, max_value=3, value=0, key="n_ineq_kkt")
+    ineq_inputs = []
+    for i in range(int(n_ineq_kkt)):
+        val = "x**2 + y**2 - 4" if i == 0 else ""
+        ineq_inputs.append(st.text_input(f"h{i+1}(x,y) ≤ 0", value=val,
+                                          key=f"ineq_kkt_{i}"))
+
+kkt_run = st.button("🔒 Resolver y verificar KKT", key="kkt_run")
+
+# ── Solver ────────────────────────────────────────────────────────────────────
+if kkt_run:
+    try:
+        kkt_x0_arr = np.array([float(v.strip()) for v in kkt_x0.split(',')])
+        if len(kkt_x0_arr) != 2:
+            st.error("❌ El punto inicial debe tener exactamente 2 valores.")
+            st.stop()
+    except ValueError:
+        st.error("❌ Punto inicial inválido.")
+        st.stop()
+
+    if not (eq_inputs or ineq_inputs):
+        st.warning("⚠️ Agrega al menos una restricción para usar esta sección.")
+        st.stop()
+
+    with st.spinner("Resolviendo y verificando condiciones KKT..."):
+        try:
+            sol = solve_kkt(kkt_f, eq_inputs, ineq_inputs, kkt_x0_arr)
+        except Exception as e:
+            st.error(f"❌ Error al resolver: {e}")
+            st.stop()
+
+    # ── Resultado principal ───────────────────────────────────────────────────
+    st.markdown('<div class="section-label">📊 Solución</div>', unsafe_allow_html=True)
+
+    r1, r2, r3 = st.columns(3)
+    with r1:
+        st.metric("x*", f"({sol['x_star'][0]:.6f},  {sol['x_star'][1]:.6f})")
+    with r2:
+        st.metric("f(x*)", f"{sol['f_star']:.8f}")
+    with r3:
+        if sol['success']:
+            st.success("✅ Solución encontrada")
+        else:
+            st.warning(f"⚠️ {sol['message']}")
+
+    # ── Multiplicadores ───────────────────────────────────────────────────────
+    if sol['mults']:
+        st.markdown('<div class="section-label">🔢 Multiplicadores</div>',
+                    unsafe_allow_html=True)
+        mcols = st.columns(len(sol['mults']))
+        for i, (col, val) in enumerate(zip(mcols, sol['mults'])):
+            label = f"λ{i+1}" if i < sol['n_eq'] else f"μ{i-sol['n_eq']+1}"
+            tipo  = "Igualdad" if i < sol['n_eq'] else "Desigualdad"
+            with col:
+                st.metric(f"{label}  ({tipo})", f"{val:.6f}")
+
+    # ── Condiciones KKT ───────────────────────────────────────────────────────
+    st.markdown('<div class="section-label">✅ Verificación de Condiciones KKT</div>',
+                unsafe_allow_html=True)
+
+    kkt = sol['kkt']
+
+    def kkt_row(ok, val, name, formula, ideal):
+        icon = "✅" if ok else "❌"
+        return {"Condición": f"{icon} {name}", "Fórmula": formula,
+                "Valor": f"{val:.2e}", "¿Se cumple?": "Sí" if ok else "No",
+                "Ideal": ideal}
+
+    rows = []
+    ok1, v1 = kkt['stationarity']
+    rows.append(kkt_row(ok1, v1, "Estacionariedad",
+                        "‖∇f + Σλ∇g + Σμ∇h‖", "≈ 0"))
+
+    for i, (ok, v) in enumerate(kkt['eq_feasibility']):
+        rows.append(kkt_row(ok, v,  f"Factib. primal g{i+1}",
+                            f"g{i+1}(x*) = 0", "= 0"))
+
+    for i, (ok, v) in enumerate(kkt['ineq_feasibility']):
+        rows.append(kkt_row(ok, v,  f"Factib. primal h{i+1}",
+                            f"h{i+1}(x*) ≤ 0", "≤ 0"))
+
+    for i, (ok, v) in enumerate(kkt['dual_feasibility']):
+        rows.append(kkt_row(ok, v,  f"Factib. dual μ{i+1}",
+                            f"μ{i+1} ≥ 0", "≥ 0"))
+
+    for i, (ok, v) in enumerate(kkt['comp_slackness']):
+        rows.append(kkt_row(ok, v,  f"Holgura complement. h{i+1}",
+                            f"|μ{i+1}·h{i+1}(x*)| ≈ 0", "≈ 0"))
+
+    st.dataframe(pd.DataFrame(rows).set_index("Condición"),
+                 use_container_width=True)
+
+    all_ok = ok1 and all(o for o,_ in kkt['eq_feasibility']) \
+                 and all(o for o,_ in kkt['ineq_feasibility']) \
+                 and all(o for o,_ in kkt['dual_feasibility']) \
+                 and all(o for o,_ in kkt['comp_slackness'])
+
+    if all_ok:
+        st.success("🏆 El punto x* satisface **todas** las condiciones KKT — es un candidato a óptimo.")
+    else:
+        st.warning("⚠️ Alguna condición KKT no se satisface. El solver puede no haber convergido.")
+
+    # ── Gráfico ───────────────────────────────────────────────────────────────
+    st.markdown('<div class="section-label">🗺️ Visualización</div>', unsafe_allow_html=True)
+    try:
+        st.plotly_chart(plot_kkt_2d(sol), use_container_width=True)
+        st.caption("Las flechas muestran los vectores gradiente escalados en x*. "
+                   "La condición de estacionariedad exige que **∇f = −Σλᵢ∇gᵢ − Σμⱼ∇hⱼ** "
+                   "(los vectores deben cancelarse entre sí).")
+    except Exception as e:
+        st.info(f"No se pudo generar el gráfico: {e}")
