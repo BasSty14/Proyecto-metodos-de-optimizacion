@@ -314,43 +314,55 @@ def gradient_descent(f, grad_f, x0, max_iter, tol, c1, c2, strong):
 
 
 def conjugate_gradient(f, grad_f, x0, max_iter, tol, c1, c2, strong):
-    """
-    Gradiente Conjugado No Lineal — Fórmula Polak-Ribière con reinicio.
-    Reinicia la dirección cada n pasos o si β < 0.
-    """
+    # CG necesita c2 < 0.5 en funciones no cuadráticas
+    # con c2=0.9 el line search acepta pasos de mala calidad
+    c2 = min(c2, 0.4)
+
     x    = x0.copy()
     g    = grad_f(x)
     d    = -g.copy()
-    n    = len(x0)
     hist = []
 
-    for i in range(max_iter + 1):
+    for i in range(max_iter):
         norm_g = np.linalg.norm(g)
         hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
 
         if norm_g <= tol:
             break
 
+        # Si d dejó de ser dirección de descenso, reiniciar
+        if np.dot(g, d) >= 0:
+            d = -g.copy()
+
         alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
+
+        # Si el paso es insignificante, forzar reinicio
+        if alpha < 1e-14:
+            d     = -g.copy()
+            alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
+
         x_new = x + alpha * d
         g_new = grad_f(x_new)
 
-        # Fórmula Polak-Ribière
-        gg = np.dot(g, g)
-        beta = max(0.0, np.dot(g_new, g_new - g) / gg) if gg > 1e-30 else 0.0
+        gg     = np.dot(g, g)
+        gg_new = np.dot(g_new, g_new)
 
-        # Reinicio periódico cada n iteraciones
-        if (i + 1) % n == 0:
+        if gg < 1e-30 or gg_new < 1e-30:
             beta = 0.0
+        else:
+            # Polak-Ribière+
+            beta = max(0.0, np.dot(g_new, g_new - g) / gg)
+
+            # Criterio de reinicio de Powell:
+            # si los gradientes no son suficientemente ortogonales → reiniciar
+            if abs(np.dot(g_new, g)) / gg_new >= 0.1:
+                beta = 0.0
 
         d = -g_new + beta * d
         x = x_new
         g = g_new
 
-    
-
     return x, hist, hist[-1]['grad_norm'] <= tol
-
 
 def newton_method(f, grad_f, hess_f, x0, max_iter, tol, c1, c2, strong):
     """
