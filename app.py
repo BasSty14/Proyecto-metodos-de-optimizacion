@@ -745,6 +745,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+tab1, tab2 = st.tabs(["📉 Calculadora Principal", "🔒 Restricciones & KKT"])
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -811,8 +812,44 @@ with st.sidebar:
 
     st.markdown("---")
     run_btn = st.button("🚀 Ejecutar optimización")
+with tab1:
+    _ok = True
 
+    if not run_btn:
+        # ... bloque de bienvenida completo (col1, col2, col3, ejemplos) ...
+        _ok = False
 
+    if _ok:
+        try:
+            x0_vals = [float(v.strip()) for v in x0_str.split(',')]
+            if len(x0_vals) != n_vars:
+                st.error(f"❌ El punto de partida debe tener exactamente **{n_vars}** valor(es).")
+                _ok = False
+            else:
+                x0 = np.array(x0_vals, dtype=float)
+        except ValueError:
+            st.error("❌ El punto de partida contiene valores inválidos.")
+            _ok = False
+
+    if _ok and not (use_gd or use_cg or use_nt):
+        st.warning("⚠️ Selecciona al menos un método en la barra lateral.")
+        _ok = False
+
+    if _ok and not (0 < c1 < c2 < 1):
+        st.error("❌ Los parámetros de Wolfe deben satisfacer **0 < c₁ < c₂ < 1**.")
+        _ok = False
+
+    if _ok:
+        with st.spinner("⚙️ Calculando gradiente y Hessiana simbólicos..."):
+            try:
+                f, grad_f, hess_f, sym_vars, expr = parse_and_build(func_str, n_vars)
+                _ = f(x0); _ = grad_f(x0)
+            except Exception as e:
+                st.error(f"❌ Error al procesar la función: {e}")
+                _ok = False
+
+    if _ok:
+        # ... todo el resto: mostrar función, ejecutar métodos, gráficos, tablas, footer ...
 # ── Página de bienvenida ──────────────────────────────────────────────────────
 if not run_btn:
     col1, col2, col3 = st.columns(3)
@@ -1080,7 +1117,8 @@ st.markdown("""
 # SECCIÓN DE VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("---")
+with tab2:
+    st.markdown("---")
 st.markdown("""
 <div class="app-header" style="margin-top:10px;">
     <div class="app-title" style="font-size:1.9em;">🔒 Optimización Restringida</div>
