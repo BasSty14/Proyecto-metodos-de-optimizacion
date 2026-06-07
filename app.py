@@ -739,8 +739,8 @@ st.markdown("""
 <div class="app-header">
     <div class="app-title">📉 Optimización Numérica</div>
     <div class="app-sub">
-        Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton<br>
-        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª)</span>
+        Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton · Multiplicadores de Lagrange<br>
+        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª) Y Optimización restringida con condiciones de Karush-Kuhn-Tucker (KKT)</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1123,9 +1123,9 @@ lo que se puede ver visualmente en el gráfico.
         <div class="card-title">💡 Ejemplos para probar</div>
         <div class="card-sub">
             <b>Clásico Lagrange:</b><br>
-            f = x² + y² &nbsp;|&nbsp; g = x+y-1=0<br><br>
+            f = x**2 + y**2 &nbsp;|&nbsp; g = x+y-1=0<br><br>
             <b>Con desigualdad:</b><br>
-            f = (x-3)²+(y-2)² &nbsp;|&nbsp; h = x²+y²-4 ≤ 0<br><br>
+            f = (x-3)**2+(y-2)**2 &nbsp;|&nbsp; h = x**2+y**2-4 ≤ 0<br><br>
             <b>Producción (Cobb-Douglas):</b><br>
             f = -(x**0.5 * y**0.5) &nbsp;|&nbsp; g = 2*x+3*y-12=0
         </div>
