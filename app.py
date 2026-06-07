@@ -224,325 +224,7 @@ def parse_and_build(expr_str: str, n_vars: int):
     return f, grad_f, hess_f, sym_vars, expr
 
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
-# ═══════════════════════════════════════════════════════════════════════════════
-
-from scipy.optimize import minimize as scipy_minimize
-
-def build_2d_fns(expr_str):
-    """Parsea función de 2 variables usando x, y."""
-    xs, ys = sp.symbols('x y')
-    local  = {'x': xs, 'y': ys}
-    expr   = sp.sympify(expr_str, locals=local)
-    _f  = sp.lambdify((xs, ys), expr,                   modules='numpy')
-    _gx = sp.lambdify((xs, ys), sp.diff(expr, xs),      modules='numpy')
-    _gy = sp.lambdify((xs, ys), sp.diff(expr, ys),      modules='numpy')
-    def fn(pt):
-        return float(np.real(_f(pt[0], pt[1])))
-    def gn(pt):
-        return np.array([float(np.real(_gx(pt[0], pt[1]))),
-                         float(np.real(_gy(pt[0], pt[1])))], dtype=float)
-    return fn, gn, expr
-
-
-def solve_kkt(f_str, eq_strs, ineq_strs, x0):
-    """
-    Resuelve optimización restringida en 2D y calcula condiciones KKT.
-    Restricciones de igualdad:    g(x,y) = 0
-    Restricciones de desigualdad: h(x,y) ≤ 0
-    """
-    f_fn, f_gn, f_expr = build_2d_fns(f_str)
-
-    eq_data   = [dict(zip(('fn','gn','expr'), build_2d_fns(s)))
-                 for s in eq_strs if s.strip()]
-    ineq_data = [dict(zip(('fn','gn','expr'), build_2d_fns(s)))
-                 for s in ineq_strs if s.strip()]
-
-    # scipy 'ineq' requiere fun(x) >= 0, entonces negamos h(x) ≤ 0
-    constraints = (
-        [{'type': 'eq',   'fun': d['fn'], 'jac': d['gn']} for d in eq_data] +
-        [{'type': 'ineq', 'fun': lambda pt, d=d: -d['fn'](pt),
-                          'jac': lambda pt, d=d: -d['gn'](pt)} for d in ineq_data]
-    )
-
-    res = scipy_minimize(f_fn, x0, method='SLSQP', jac=f_gn,
-                         constraints=constraints, tol=1e-10,
-                         options={'maxiter': 2000, 'ftol': 1e-10})
-    x_star = res.x
-
-    # Multiplicadores: resuelve sistema KKT de estacionariedad
-    # ∇f(x*) + Σ λᵢ∇gᵢ(x*) + Σ μⱼ∇hⱼ(x*) = 0  →  A·m = -∇f
-    all_grads = [d['gn'](x_star) for d in eq_data + ineq_data]
-    mults = []
-    if all_grads:
-        A = np.column_stack(all_grads)
-        m, _, _, _ = np.linalg.lstsq(A, -f_gn(x_star), rcond=None)
-        mults = m.tolist()
-
-    EPS = 1e-4
-    n_eq = len(eq_data)
-
-    # ── Verificación de condiciones KKT ──────────────────────────────────────
-    # 1. Estacionariedad
-    residual = f_gn(x_star).copy()
-    for i, d in enumerate(eq_data + ineq_data):
-        if i < len(mults):
-            residual += mults[i] * d['gn'](x_star)
-    stat_norm = np.linalg.norm(residual)
-
-    # 2. Factibilidad primal — igualdad
-    eq_vals  = [d['fn'](x_star)  for d in eq_data]
-
-    # 3. Factibilidad primal — desigualdad
-    ineq_vals = [d['fn'](x_star) for d in ineq_data]
-
-    # 4. Factibilidad dual (μⱼ ≥ 0)
-    mu_vals = [mults[n_eq + i] for i in range(len(ineq_data))] if mults else []
-
-    # 5. Holgura complementaria (μⱼ · hⱼ(x*) = 0)
-    comp_vals = [abs(mu_vals[i] * ineq_vals[i]) for i in range(len(ineq_data))]
-
-    return {
-        'x_star':    x_star,
-        'f_star':    f_fn(x_star),
-        'success':   res.success,
-        'message':   res.message,
-        'f_fn':      f_fn,
-        'f_gn':      f_gn,
-        'f_expr':    f_expr,
-        'eq_data':   eq_data,
-        'ineq_data': ineq_data,
-        'mults':     mults,
-        'n_eq':      n_eq,
-        'kkt': {
-            'stationarity':     (stat_norm      < EPS,  stat_norm),
-            'eq_feasibility':   [(abs(v)         < EPS,  v)  for v in eq_vals],
-            'ineq_feasibility': [(v              <= EPS, v)  for v in ineq_vals],
-            'dual_feasibility': [(v              >= -EPS,v)  for v in mu_vals],
-            'comp_slackness':   [(v              < EPS,  v)  for v in comp_vals],
-        }
-    }
-
-
-def plot_kkt_2d(data):
-    """Contorno de f + curvas de restricción + vectores gradiente en x*."""
-    x_star, f_fn = data['x_star'], data['f_fn']
-    pad = max(2.5, np.abs(x_star).max() * 1.5 + 1.5)
-    xr  = np.linspace(x_star[0]-pad, x_star[0]+pad, 130)
-    yr  = np.linspace(x_star[1]-pad, x_star[1]+pad, 130)
-    X, Y = np.meshgrid(xr, yr)
-    Z = np.vectorize(lambda a, b: f_fn([a, b]))(X, Y)
-
-    fig = go.Figure()
-
-    # Contorno de f
-    fig.add_trace(go.Contour(
-        x=xr, y=yr, z=Z, colorscale='Blues', opacity=0.50,
-        showscale=True,
-        contours=dict(coloring='heatmap', showlabels=True,
-                      labelfont=dict(size=9, color='white')),
-        colorbar=dict(x=1.13, thickness=13, tickfont=dict(color='#8b949e'))
-    ))
-
-    EQ_COLORS   = ['#f7b731', '#a29bfe', '#fd79a8']
-    INEQ_COLORS = ['#00b894', '#e17055']
-
-    # Restricciones de igualdad — curva g(x,y)=0
-    for i, d in enumerate(data['eq_data']):
-        Gc = np.vectorize(lambda a, b, d=d: d['fn']([a, b]))(X, Y)
-        c  = EQ_COLORS[i % len(EQ_COLORS)]
-        fig.add_trace(go.Contour(
-            x=xr, y=yr, z=Gc, showscale=False,
-            contours=dict(start=0, end=0, size=1e-6, coloring='lines',
-                          showlabels=True, labelfont=dict(size=10, color=c)),
-            line=dict(color=c, width=3),
-            name=f'g{i+1}(x,y) = 0'
-        ))
-
-    # Restricciones de desigualdad — frontera h(x,y)=0
-    for i, d in enumerate(data['ineq_data']):
-        Hc = np.vectorize(lambda a, b, d=d: d['fn']([a, b]))(X, Y)
-        c  = INEQ_COLORS[i % len(INEQ_COLORS)]
-        fig.add_trace(go.Contour(
-            x=xr, y=yr, z=Hc, showscale=False,
-            contours=dict(start=0, end=0, size=1e-6, coloring='lines'),
-            line=dict(color=c, width=2.5, dash='dash'),
-            name=f'h{i+1}(x,y) = 0  (frontera)'
-        ))
-
-    # Vectores gradiente en x*
-    scale = pad * 0.28
-    mults, n_eq = data['mults'], data['n_eq']
-
-    def add_arrow(vec, color, label):
-        norm = np.linalg.norm(vec)
-        if norm < 1e-10: return
-        uv = vec / norm * scale
-        fig.add_annotation(
-            x=x_star[0]+uv[0], y=x_star[1]+uv[1],
-            ax=x_star[0], ay=x_star[1],
-            xref='x', yref='y', axref='x', ayref='y',
-            arrowhead=3, arrowsize=1.5, arrowwidth=2.5,
-            arrowcolor=color,
-            text=f'<b>{label}</b>',
-            font=dict(color=color, size=12)
-        )
-
-    add_arrow(data['f_gn'](x_star), '#74b9ff', '∇f')
-    for i, d in enumerate(data['eq_data']):
-        if i < len(mults):
-            add_arrow(mults[i] * d['gn'](x_star),
-                      EQ_COLORS[i % len(EQ_COLORS)], f'λ{i+1}∇g{i+1}')
-    for i, d in enumerate(data['ineq_data']):
-        idx = n_eq + i
-        if idx < len(mults):
-            add_arrow(mults[idx] * d['gn'](x_star),
-                      INEQ_COLORS[i % len(INEQ_COLORS)], f'μ{i+1}∇h{i+1}')
-
-    # Punto óptimo
-    fig.add_trace(go.Scatter(
-        x=[x_star[0]], y=[x_star[1]], mode='markers',
-        name=f'x* = ({x_star[0]:.4f}, {x_star[1]:.4f})',
-        marker=dict(symbol='star', size=20, color='#f85149',
-                    line=dict(color='white', width=1.5))
-    ))
-
-    fig.update_layout(
-        title=dict(text='Región factible, restricciones y punto óptimo',
-                   font=dict(color='#c9d1d9')),
-        xaxis_title='x', yaxis_title='y',
-        height=480, **DARK,
-        margin=dict(t=50, b=80, l=40, r=130)
-    )
-    fig.update_layout(legend=dict(
-        bgcolor='#1c2128', bordercolor='#30363d', borderwidth=1,
-        font=dict(color='#e6edf3'), orientation='h',
-        yanchor='bottom', y=-0.28, xanchor='center', x=0.5
-    ))
-    return fig
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# INTERFAZ PRINCIPAL
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── Encabezado ────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="app-header">
-    <div class="app-title">📉 Optimización Numérica</div>
-    <div class="app-sub">
-        Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton<br>
-        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª)</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-tab1, tab2 = st.tabs(["📉 Calculadora Principal", "🔒 Restricciones & KKT"])
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### ⚙️ Parámetros de Entrada")
-    st.markdown("---")
-
-    # Variables
-    n_vars = st.number_input("🔢 Número de variables", min_value=1, max_value=50, value=2, step=1)
-    n_vars = int(n_vars)
-
-    # Métodos
-    st.markdown("**🧮 Métodos a ejecutar**")
-    use_gd = st.checkbox("Descenso de Gradiente",   value=True)
-    use_cg = st.checkbox("Gradiente Conjugado",      value=True)
-    use_nt = st.checkbox("Método de Newton",         value=True)
-
-    st.markdown("---")
-
-    # Función
-    st.markdown("**📐 Función objetivo**")
-    default_fn = "(x1 - 2)**2 + (x2 - 3)**2" if n_vars >= 2 else "(x1 - 2)**2"
-    func_str = st.text_area(
-        f"f(x₁{',...,x'+str(n_vars) if n_vars>1 else ''})",
-        value=default_fn, height=80,
-        help="Use x1, x2, ..., xn como variables.\nEjemplo: 100*(x2-x1**2)**2 + (1-x1)**2"
-    )
-
-    # Punto de partida
-    st.markdown("**🎯 Punto de partida x₀**")
-    x0_str = st.text_input("Valores separados por coma",
-                            value=', '.join(['0.0'] * n_vars))
-
-    st.markdown("---")
-
-    # Parámetros de iteración
-    st.markdown("**🔄 Parámetros de iteración**")
-    max_iter = st.slider("Máx. iteraciones", 10, 2000, 300, 10)
-    tol = st.select_slider(
-        "Tolerancia de convergencia",
-        options=[1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8],
-        value=1e-6,
-        format_func=lambda x: f"{x:.0e}"
-    )
-
-    # Wolfe
-    st.markdown("**🔍 Parámetros de Wolfe**")
-    wolfe_type = st.radio(
-        "Condición de Wolfe",
-        ["Solo 1ª condición (Armijo)", "1ª y 2ª condición (Wolfe fuerte)"],
-        index=1,
-        help="La 2ª condición (curvatura) garantiza pasos de calidad"
-    )
-    strong_wolfe = (wolfe_type == "1ª y 2ª condición (Wolfe fuerte)")
-
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        c1 = st.number_input("c₁ (Armijo)", value=1e-4,
-                              min_value=1e-8, max_value=0.4, format="%.1e",
-                              help="Suficiente decrecimiento. Típico: 1e-4")
-    with col_c2:
-        c2 = st.number_input("c₂ (curvatura)", value=0.9,
-                              min_value=0.01, max_value=0.9999, format="%.2f",
-                              help="c₂ > c₁. Newton: 0.9 | GC: 0.1")
-
-    st.markdown("---")
-    run_btn = st.button("🚀 Ejecutar optimización")
-with tab1:
-    _ok = True
-
-    if not run_btn:
-        # ... bloque de bienvenida completo (col1, col2, col3, ejemplos) ...
-        _ok = False
-
-    if _ok:
-        try:
-            x0_vals = [float(v.strip()) for v in x0_str.split(',')]
-            if len(x0_vals) != n_vars:
-                st.error(f"❌ El punto de partida debe tener exactamente **{n_vars}** valor(es).")
-                _ok = False
-            else:
-                x0 = np.array(x0_vals, dtype=float)
-        except ValueError:
-            st.error("❌ El punto de partida contiene valores inválidos.")
-            _ok = False
-
-    if _ok and not (use_gd or use_cg or use_nt):
-        st.warning("⚠️ Selecciona al menos un método en la barra lateral.")
-        _ok = False
-
-    if _ok and not (0 < c1 < c2 < 1):
-        st.error("❌ Los parámetros de Wolfe deben satisfacer **0 < c₁ < c₂ < 1**.")
-        _ok = False
-
-    if _ok:
-        with st.spinner("⚙️ Calculando gradiente y Hessiana simbólicos..."):
-            try:
-                f, grad_f, hess_f, sym_vars, expr = parse_and_build(func_str, n_vars)
-                _ = f(x0); _ = grad_f(x0)
-            except Exception as e:
-                st.error(f"❌ Error al procesar la función: {e}")
-                _ok = False
-
-    if _ok:
-        # ═══════════════════════════════════════════════════════════════════════════════
 # BÚSQUEDA DE LÍNEA — CONDICIONES DE WOLFE
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -849,7 +531,287 @@ def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
         )
     )
     return fig
-        
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from scipy.optimize import minimize as scipy_minimize
+
+def build_2d_fns(expr_str):
+    """Parsea función de 2 variables usando x, y."""
+    xs, ys = sp.symbols('x y')
+    local  = {'x': xs, 'y': ys}
+    expr   = sp.sympify(expr_str, locals=local)
+    _f  = sp.lambdify((xs, ys), expr,                   modules='numpy')
+    _gx = sp.lambdify((xs, ys), sp.diff(expr, xs),      modules='numpy')
+    _gy = sp.lambdify((xs, ys), sp.diff(expr, ys),      modules='numpy')
+    def fn(pt):
+        return float(np.real(_f(pt[0], pt[1])))
+    def gn(pt):
+        return np.array([float(np.real(_gx(pt[0], pt[1]))),
+                         float(np.real(_gy(pt[0], pt[1])))], dtype=float)
+    return fn, gn, expr
+
+
+def solve_kkt(f_str, eq_strs, ineq_strs, x0):
+    """
+    Resuelve optimización restringida en 2D y calcula condiciones KKT.
+    Restricciones de igualdad:    g(x,y) = 0
+    Restricciones de desigualdad: h(x,y) ≤ 0
+    """
+    f_fn, f_gn, f_expr = build_2d_fns(f_str)
+
+    eq_data   = [dict(zip(('fn','gn','expr'), build_2d_fns(s)))
+                 for s in eq_strs if s.strip()]
+    ineq_data = [dict(zip(('fn','gn','expr'), build_2d_fns(s)))
+                 for s in ineq_strs if s.strip()]
+
+    # scipy 'ineq' requiere fun(x) >= 0, entonces negamos h(x) ≤ 0
+    constraints = (
+        [{'type': 'eq',   'fun': d['fn'], 'jac': d['gn']} for d in eq_data] +
+        [{'type': 'ineq', 'fun': lambda pt, d=d: -d['fn'](pt),
+                          'jac': lambda pt, d=d: -d['gn'](pt)} for d in ineq_data]
+    )
+
+    res = scipy_minimize(f_fn, x0, method='SLSQP', jac=f_gn,
+                         constraints=constraints, tol=1e-10,
+                         options={'maxiter': 2000, 'ftol': 1e-10})
+    x_star = res.x
+
+    # Multiplicadores: resuelve sistema KKT de estacionariedad
+    # ∇f(x*) + Σ λᵢ∇gᵢ(x*) + Σ μⱼ∇hⱼ(x*) = 0  →  A·m = -∇f
+    all_grads = [d['gn'](x_star) for d in eq_data + ineq_data]
+    mults = []
+    if all_grads:
+        A = np.column_stack(all_grads)
+        m, _, _, _ = np.linalg.lstsq(A, -f_gn(x_star), rcond=None)
+        mults = m.tolist()
+
+    EPS = 1e-4
+    n_eq = len(eq_data)
+
+    # ── Verificación de condiciones KKT ──────────────────────────────────────
+    # 1. Estacionariedad
+    residual = f_gn(x_star).copy()
+    for i, d in enumerate(eq_data + ineq_data):
+        if i < len(mults):
+            residual += mults[i] * d['gn'](x_star)
+    stat_norm = np.linalg.norm(residual)
+
+    # 2. Factibilidad primal — igualdad
+    eq_vals  = [d['fn'](x_star)  for d in eq_data]
+
+    # 3. Factibilidad primal — desigualdad
+    ineq_vals = [d['fn'](x_star) for d in ineq_data]
+
+    # 4. Factibilidad dual (μⱼ ≥ 0)
+    mu_vals = [mults[n_eq + i] for i in range(len(ineq_data))] if mults else []
+
+    # 5. Holgura complementaria (μⱼ · hⱼ(x*) = 0)
+    comp_vals = [abs(mu_vals[i] * ineq_vals[i]) for i in range(len(ineq_data))]
+
+    return {
+        'x_star':    x_star,
+        'f_star':    f_fn(x_star),
+        'success':   res.success,
+        'message':   res.message,
+        'f_fn':      f_fn,
+        'f_gn':      f_gn,
+        'f_expr':    f_expr,
+        'eq_data':   eq_data,
+        'ineq_data': ineq_data,
+        'mults':     mults,
+        'n_eq':      n_eq,
+        'kkt': {
+            'stationarity':     (stat_norm      < EPS,  stat_norm),
+            'eq_feasibility':   [(abs(v)         < EPS,  v)  for v in eq_vals],
+            'ineq_feasibility': [(v              <= EPS, v)  for v in ineq_vals],
+            'dual_feasibility': [(v              >= -EPS,v)  for v in mu_vals],
+            'comp_slackness':   [(v              < EPS,  v)  for v in comp_vals],
+        }
+    }
+
+
+def plot_kkt_2d(data):
+    """Contorno de f + curvas de restricción + vectores gradiente en x*."""
+    x_star, f_fn = data['x_star'], data['f_fn']
+    pad = max(2.5, np.abs(x_star).max() * 1.5 + 1.5)
+    xr  = np.linspace(x_star[0]-pad, x_star[0]+pad, 130)
+    yr  = np.linspace(x_star[1]-pad, x_star[1]+pad, 130)
+    X, Y = np.meshgrid(xr, yr)
+    Z = np.vectorize(lambda a, b: f_fn([a, b]))(X, Y)
+
+    fig = go.Figure()
+
+    # Contorno de f
+    fig.add_trace(go.Contour(
+        x=xr, y=yr, z=Z, colorscale='Blues', opacity=0.50,
+        showscale=True,
+        contours=dict(coloring='heatmap', showlabels=True,
+                      labelfont=dict(size=9, color='white')),
+        colorbar=dict(x=1.13, thickness=13, tickfont=dict(color='#8b949e'))
+    ))
+
+    EQ_COLORS   = ['#f7b731', '#a29bfe', '#fd79a8']
+    INEQ_COLORS = ['#00b894', '#e17055']
+
+    # Restricciones de igualdad — curva g(x,y)=0
+    for i, d in enumerate(data['eq_data']):
+        Gc = np.vectorize(lambda a, b, d=d: d['fn']([a, b]))(X, Y)
+        c  = EQ_COLORS[i % len(EQ_COLORS)]
+        fig.add_trace(go.Contour(
+            x=xr, y=yr, z=Gc, showscale=False,
+            contours=dict(start=0, end=0, size=1e-6, coloring='lines',
+                          showlabels=True, labelfont=dict(size=10, color=c)),
+            line=dict(color=c, width=3),
+            name=f'g{i+1}(x,y) = 0'
+        ))
+
+    # Restricciones de desigualdad — frontera h(x,y)=0
+    for i, d in enumerate(data['ineq_data']):
+        Hc = np.vectorize(lambda a, b, d=d: d['fn']([a, b]))(X, Y)
+        c  = INEQ_COLORS[i % len(INEQ_COLORS)]
+        fig.add_trace(go.Contour(
+            x=xr, y=yr, z=Hc, showscale=False,
+            contours=dict(start=0, end=0, size=1e-6, coloring='lines'),
+            line=dict(color=c, width=2.5, dash='dash'),
+            name=f'h{i+1}(x,y) = 0  (frontera)'
+        ))
+
+    # Vectores gradiente en x*
+    scale = pad * 0.28
+    mults, n_eq = data['mults'], data['n_eq']
+
+    def add_arrow(vec, color, label):
+        norm = np.linalg.norm(vec)
+        if norm < 1e-10: return
+        uv = vec / norm * scale
+        fig.add_annotation(
+            x=x_star[0]+uv[0], y=x_star[1]+uv[1],
+            ax=x_star[0], ay=x_star[1],
+            xref='x', yref='y', axref='x', ayref='y',
+            arrowhead=3, arrowsize=1.5, arrowwidth=2.5,
+            arrowcolor=color,
+            text=f'<b>{label}</b>',
+            font=dict(color=color, size=12)
+        )
+
+    add_arrow(data['f_gn'](x_star), '#74b9ff', '∇f')
+    for i, d in enumerate(data['eq_data']):
+        if i < len(mults):
+            add_arrow(mults[i] * d['gn'](x_star),
+                      EQ_COLORS[i % len(EQ_COLORS)], f'λ{i+1}∇g{i+1}')
+    for i, d in enumerate(data['ineq_data']):
+        idx = n_eq + i
+        if idx < len(mults):
+            add_arrow(mults[idx] * d['gn'](x_star),
+                      INEQ_COLORS[i % len(INEQ_COLORS)], f'μ{i+1}∇h{i+1}')
+
+    # Punto óptimo
+    fig.add_trace(go.Scatter(
+        x=[x_star[0]], y=[x_star[1]], mode='markers',
+        name=f'x* = ({x_star[0]:.4f}, {x_star[1]:.4f})',
+        marker=dict(symbol='star', size=20, color='#f85149',
+                    line=dict(color='white', width=1.5))
+    ))
+
+    fig.update_layout(
+        title=dict(text='Región factible, restricciones y punto óptimo',
+                   font=dict(color='#c9d1d9')),
+        xaxis_title='x', yaxis_title='y',
+        height=480, **DARK,
+        margin=dict(t=50, b=80, l=40, r=130)
+    )
+    fig.update_layout(legend=dict(
+        bgcolor='#1c2128', bordercolor='#30363d', borderwidth=1,
+        font=dict(color='#e6edf3'), orientation='h',
+        yanchor='bottom', y=-0.28, xanchor='center', x=0.5
+    ))
+    return fig
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INTERFAZ PRINCIPAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Encabezado ────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="app-header">
+    <div class="app-title">📉 Optimización Numérica</div>
+    <div class="app-sub">
+        Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton<br>
+        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª)</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### ⚙️ Parámetros de Entrada")
+    st.markdown("---")
+
+    # Variables
+    n_vars = st.number_input("🔢 Número de variables", min_value=1, max_value=50, value=2, step=1)
+    n_vars = int(n_vars)
+
+    # Métodos
+    st.markdown("**🧮 Métodos a ejecutar**")
+    use_gd = st.checkbox("Descenso de Gradiente",   value=True)
+    use_cg = st.checkbox("Gradiente Conjugado",      value=True)
+    use_nt = st.checkbox("Método de Newton",         value=True)
+
+    st.markdown("---")
+
+    # Función
+    st.markdown("**📐 Función objetivo**")
+    default_fn = "(x1 - 2)**2 + (x2 - 3)**2" if n_vars >= 2 else "(x1 - 2)**2"
+    func_str = st.text_area(
+        f"f(x₁{',...,x'+str(n_vars) if n_vars>1 else ''})",
+        value=default_fn, height=80,
+        help="Use x1, x2, ..., xn como variables.\nEjemplo: 100*(x2-x1**2)**2 + (1-x1)**2"
+    )
+
+    # Punto de partida
+    st.markdown("**🎯 Punto de partida x₀**")
+    x0_str = st.text_input("Valores separados por coma",
+                            value=', '.join(['0.0'] * n_vars))
+
+    st.markdown("---")
+
+    # Parámetros de iteración
+    st.markdown("**🔄 Parámetros de iteración**")
+    max_iter = st.slider("Máx. iteraciones", 10, 2000, 300, 10)
+    tol = st.select_slider(
+        "Tolerancia de convergencia",
+        options=[1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8],
+        value=1e-6,
+        format_func=lambda x: f"{x:.0e}"
+    )
+
+    # Wolfe
+    st.markdown("**🔍 Parámetros de Wolfe**")
+    wolfe_type = st.radio(
+        "Condición de Wolfe",
+        ["Solo 1ª condición (Armijo)", "1ª y 2ª condición (Wolfe fuerte)"],
+        index=1,
+        help="La 2ª condición (curvatura) garantiza pasos de calidad"
+    )
+    strong_wolfe = (wolfe_type == "1ª y 2ª condición (Wolfe fuerte)")
+
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        c1 = st.number_input("c₁ (Armijo)", value=1e-4,
+                              min_value=1e-8, max_value=0.4, format="%.1e",
+                              help="Suficiente decrecimiento. Típico: 1e-4")
+    with col_c2:
+        c2 = st.number_input("c₂ (curvatura)", value=0.9,
+                              min_value=0.01, max_value=0.9999, format="%.2f",
+                              help="c₂ > c₁. Newton: 0.9 | GC: 0.1")
+
+    st.markdown("---")
+    run_btn = st.button("🚀 Ejecutar optimización")
+
 # ── Página de bienvenida ──────────────────────────────────────────────────────
 if not run_btn:
     col1, col2, col3 = st.columns(3)
@@ -1113,12 +1075,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECCIÓN DE VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-with tab2:
-    st.markdown("---")
+st.markdown("---")
 st.markdown("""
 <div class="app-header" style="margin-top:10px;">
     <div class="app-title" style="font-size:1.9em;">🔒 Optimización Restringida</div>
