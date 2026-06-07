@@ -740,7 +740,7 @@ st.markdown("""
     <div class="app-title">📉 Optimización Numérica</div>
     <div class="app-sub">
         Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton<br>
-        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª)</span>
+        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª) Y Multiplicadores de Lagrange y restriccion KKT</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
