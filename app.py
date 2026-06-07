@@ -611,23 +611,11 @@ def solve_kkt(f_str, eq_strs, ineq_strs, x0):
     # 5. Holgura complementaria (μⱼ · hⱼ(x*) = 0)
     comp_vals = [abs(mu_vals[i] * ineq_vals[i]) for i in range(len(ineq_data))]
 
-    # Traducir mensajes de scipy al español
-    _traducciones = {
-        'Optimization terminated successfully': 'Optimización completada exitosamente',
-        'Positive directional derivative for linesearch': 'Advertencia: derivada direccional positiva — la solución puede ser válida de todas formas',
-        'Iteration limit reached': 'Límite de iteraciones alcanzado',
-        'Singular matrix C in LSQ subproblem': 'Matriz singular en subproblema LSQ',
-        'Inequality constraints incompatible': 'Restricciones de desigualdad incompatibles — revisa que sean factibles',
-        'More than 3*n iterations in LSQ subproblem': 'Demasiadas iteraciones en subproblema interno',
-        'Infeasible problem': 'Problema infactible — revisa las restricciones',
-    }
-    mensaje_es = next((v for k, v in _traducciones.items() if k in res.message), res.message)
-
     return {
         'x_star':    x_star,
         'f_star':    f_fn(x_star),
         'success':   res.success,
-        'message':   mensaje_es,
+        'message':   res.message,
         'f_fn':      f_fn,
         'f_gn':      f_gn,
         'f_expr':    f_expr,
@@ -751,23 +739,23 @@ st.markdown("""
 <div class="app-header">
     <div class="app-title">📉 Optimización Numérica</div>
     <div class="app-sub">
-        Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton · Multiplicadores de Lagrange<br>
-        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª) Y Optimización restringida con las condiciones de Karush-Kuhn-Tucker (KKT)</span>
+        Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton<br>
+        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª)</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab1, tab2 = st.tabs(["📉 Calculadora Principal", "🔒 Restricciones & KKT"])
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚙️ Parámetros de Entrada")
     st.markdown("---")
 
-    # Variables
     n_vars = st.number_input("🔢 Número de variables", min_value=1, max_value=50, value=2, step=1)
     n_vars = int(n_vars)
 
-    # Métodos
     st.markdown("**🧮 Métodos a ejecutar**")
     use_gd = st.checkbox("Descenso de Gradiente",   value=True)
     use_cg = st.checkbox("Gradiente Conjugado",      value=True)
@@ -775,7 +763,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Función
     st.markdown("**📐 Función objetivo**")
     default_fn = "(x1 - 2)**2 + (x2 - 3)**2" if n_vars >= 2 else "(x1 - 2)**2"
     func_str = st.text_area(
@@ -784,14 +771,12 @@ with st.sidebar:
         help="Use x1, x2, ..., xn como variables.\nEjemplo: 100*(x2-x1**2)**2 + (1-x1)**2"
     )
 
-    # Punto de partida
     st.markdown("**🎯 Punto de partida x₀**")
     x0_str = st.text_input("Valores separados por coma",
                             value=', '.join(['0.0'] * n_vars))
 
     st.markdown("---")
 
-    # Parámetros de iteración
     st.markdown("**🔄 Parámetros de iteración**")
     max_iter = st.slider("Máx. iteraciones", 10, 2000, 300, 10)
     tol = st.select_slider(
@@ -801,7 +786,6 @@ with st.sidebar:
         format_func=lambda x: f"{x:.0e}"
     )
 
-    # Wolfe
     st.markdown("**🔍 Parámetros de Wolfe**")
     wolfe_type = st.radio(
         "Condición de Wolfe",
@@ -824,263 +808,251 @@ with st.sidebar:
     st.markdown("---")
     run_btn = st.button("🚀 Ejecutar optimización")
 
-# ── Página de bienvenida ──────────────────────────────────────────────────────
-if not run_btn:
-    col1, col2, col3 = st.columns(3)
 
-    with col1:
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 1 — CALCULADORA PRINCIPAL
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab1:
+    _ok = True
+
+    # ── Página de bienvenida ──────────────────────────────────────────────────
+    if not run_btn:
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("""
+            <div class="card">
+                <div class="method-header">
+                    <span class="method-icon">⬇️</span>
+                    <span class="method-name">Descenso de Gradiente</span>
+                </div>
+                <div class="card-sub">
+                    Método de <strong>primer orden</strong>. En cada iteración avanza
+                    en la dirección de mayor descenso <em>-∇f(x)</em>.<br><br>
+                    Convergencia <strong>lineal</strong> en funciones fuertemente convexas.
+                    Simple y robusto, pero puede ser lento cerca del mínimo.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col2:
+            st.markdown("""
+            <div class="card">
+                <div class="method-header">
+                    <span class="method-icon">🔀</span>
+                    <span class="method-name">Gradiente Conjugado</span>
+                </div>
+                <div class="card-sub">
+                    Combina el gradiente actual con la dirección anterior mediante
+                    el parámetro β <em>(Polak-Ribière)</em>.<br><br>
+                    Convergencia <strong>superlineal</strong>. Mucho más eficiente que
+                    gradiente puro, especialmente en problemas cuadráticos.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col3:
+            st.markdown("""
+            <div class="card">
+                <div class="method-header">
+                    <span class="method-icon">⚡</span>
+                    <span class="method-name">Método de Newton</span>
+                </div>
+                <div class="card-sub">
+                    Usa información de <strong>segundo orden</strong> (Hessiana).
+                    La dirección es <em>d = -H⁻¹∇f(x)</em>.<br><br>
+                    Convergencia <strong>cuadrática</strong> cerca del mínimo.
+                    Regularización automática cuando H no es definida positiva.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<div class="section-label">📖 Ejemplos de funciones para probar</div>', unsafe_allow_html=True)
+
+        ex_col1, ex_col2 = st.columns(2)
+        with ex_col1:
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">2 variables</div>
+                <code>(x1 - 2)**2 + (x2 - 3)**2</code>  → Cuadrática convexa<br><br>
+                <code>100*(x2 - x1**2)**2 + (1 - x1)**2</code> → Rosenbrock<br><br>
+                <code>(x1**2 + x2 - 11)**2 + (x1 + x2**2 - 7)**2</code> → Himmelblau
+            </div>
+            """, unsafe_allow_html=True)
+        with ex_col2:
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">3+ variables</div>
+                <code>x1**2 + 2*x2**2 + 3*x3**2 - x1*x2 + x2*x3</code><br><br>
+                <code>(x1-1)**2 + (x2-2)**2 + (x3+1)**2 + (x4-3)**2</code><br><br>
+                <code>sp.exp(x1) + x1**2 + x2**2 + x1*x2</code>
+            </div>
+            """, unsafe_allow_html=True)
+
+        _ok = False
+
+    # ── Validar inputs ────────────────────────────────────────────────────────
+    if _ok:
+        try:
+            x0_vals = [float(v.strip()) for v in x0_str.split(',')]
+            if len(x0_vals) != n_vars:
+                st.error(f"❌ El punto de partida debe tener exactamente **{n_vars}** valor(es), separados por coma.")
+                _ok = False
+            else:
+                x0 = np.array(x0_vals, dtype=float)
+        except ValueError:
+            st.error("❌ El punto de partida contiene valores inválidos. Use números separados por coma.")
+            _ok = False
+
+    if _ok and not (use_gd or use_cg or use_nt):
+        st.warning("⚠️ Selecciona al menos un método en la barra lateral.")
+        _ok = False
+
+    if _ok and not (0 < c1 < c2 < 1):
+        st.error("❌ Los parámetros de Wolfe deben satisfacer **0 < c₁ < c₂ < 1**.")
+        _ok = False
+
+    # ── Parsear función ───────────────────────────────────────────────────────
+    if _ok:
+        with st.spinner("⚙️ Calculando gradiente y Hessiana simbólicos..."):
+            try:
+                f, grad_f, hess_f, sym_vars, expr = parse_and_build(func_str, n_vars)
+                _ = f(x0); _ = grad_f(x0)
+            except Exception as e:
+                st.error(f"❌ Error al procesar la función: {e}")
+                _ok = False
+
+    if _ok:
+        # Mostrar función parseada en LaTeX
+        latex_expr = sp.latex(expr)
         st.markdown("""
-        <div class="card">
-            <div class="method-header">
-                <span class="method-icon">⬇️</span>
-                <span class="method-name">Descenso de Gradiente</span>
-            </div>
-            <div class="card-sub">
-                Método de <strong>primer orden</strong>. En cada iteración avanza
-                en la dirección de mayor descenso <em>-∇f(x)</em>.<br><br>
-                Convergencia <strong>lineal</strong> en funciones fuertemente convexas.
-                Simple y robusto, pero puede ser lento cerca del mínimo.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="card">
-            <div class="method-header">
-                <span class="method-icon">🔀</span>
-                <span class="method-name">Gradiente Conjugado</span>
-            </div>
-            <div class="card-sub">
-                Combina el gradiente actual con la dirección anterior mediante
-                el parámetro β <em>(Polak-Ribière)</em>.<br><br>
-                Convergencia <strong>superlineal</strong>. Mucho más eficiente que
-                gradiente puro, especialmente en problemas cuadráticos.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="card">
-            <div class="method-header">
-                <span class="method-icon">⚡</span>
-                <span class="method-name">Método de Newton</span>
-            </div>
-            <div class="card-sub">
-                Usa información de <strong>segundo orden</strong> (Hessiana).
-                La dirección es <em>d = -H⁻¹∇f(x)</em>.<br><br>
-                Convergencia <strong>cuadrática</strong> cerca del mínimo.
-                Regularización automática cuando H no es definida positiva.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('<div class="section-label">📖 Ejemplos de funciones para probar</div>', unsafe_allow_html=True)
-
-    ex_col1, ex_col2 = st.columns(2)
-    with ex_col1:
-        st.markdown("""
-        <div class="card">
-            <div class="card-title">2 variables</div>
-            <code>(x1 - 2)**2 + (x2 - 3)**2</code>  → Cuadrática convexa<br><br>
-            <code>100*(x2 - x1**2)**2 + (1 - x1)**2</code> → Rosenbrock<br><br>
-            <code>(x1**2 + x2 - 11)**2 + (x1 + x2**2 - 7)**2</code> → Himmelblau
-        </div>
-        """, unsafe_allow_html=True)
-    with ex_col2:
-        st.markdown("""
-        <div class="card">
-            <div class="card-title">3+ variables</div>
-            <code>x1**2 + 2*x2**2 + 3*x3**2 - x1*x2 + x2*x3</code><br><br>
-            <code>(x1-1)**2 + (x2-2)**2 + (x3+1)**2 + (x4-3)**2</code><br><br>
-            <code>sp.exp(x1) + x1**2 + x2**2 + x1*x2</code>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.stop()
-
-
-# ── Validar inputs ────────────────────────────────────────────────────────────
-try:
-    x0_vals = [float(v.strip()) for v in x0_str.split(',')]
-    if len(x0_vals) != n_vars:
-        st.error(f"❌ El punto de partida debe tener exactamente **{n_vars}** valor(es), separados por coma.")
-        st.stop()
-    x0 = np.array(x0_vals, dtype=float)
-except ValueError:
-    st.error("❌ El punto de partida contiene valores inválidos. Use números separados por coma.")
-    st.stop()
-
-if not (use_gd or use_cg or use_nt):
-    st.warning("⚠️ Selecciona al menos un método en la barra lateral.")
-    st.stop()
-
-if not (0 < c1 < c2 < 1):
-    st.error("❌ Los parámetros de Wolfe deben satisfacer **0 < c₁ < c₂ < 1**.")
-    st.stop()
-
-
-# ── Parsear función ───────────────────────────────────────────────────────────
-with st.spinner("⚙️ Calculando gradiente y Hessiana simbólicos..."):
-    try:
-        f, grad_f, hess_f, sym_vars, expr = parse_and_build(func_str, n_vars)
-        _ = f(x0); _ = grad_f(x0)  # test
-    except Exception as e:
-        st.error(f"❌ Error al procesar la función: {e}")
-        st.stop()
-
-# Mostrar función parseada en LaTeX
-latex_expr = sp.latex(expr)
-st.markdown("""
 <div class="card" style="text-align:center; margin-bottom:4px;">
     <div class="card-title">Función objetivo reconocida</div>
 </div>
 """, unsafe_allow_html=True)
-
-st.latex(f"f(x) = {latex_expr}")
-
-st.markdown(f"""
+        st.latex(f"f(x) = {latex_expr}")
+        st.markdown(f"""
 <div class="card" style="text-align:center; margin-top:4px; margin-bottom:24px;">
     <div class="card-sub">Variables: {', '.join([str(v) for v in sym_vars])} &nbsp;|&nbsp;
     Punto de partida: x₀ = ({', '.join([str(v) for v in x0])})</div>
 </div>
 """, unsafe_allow_html=True)
 
+        # ── Ejecutar métodos ──────────────────────────────────────────────────
+        results   = {}
+        histories = {}
+        method_icons = {'Gradiente': '⬇️', 'Gradiente Conjugado': '🔀', 'Newton': '⚡'}
 
-# ── Ejecutar métodos ──────────────────────────────────────────────────────────
-results   = {}
-histories = {}
-method_icons = {'Gradiente': '⬇️', 'Gradiente Conjugado': '🔀', 'Newton': '⚡'}
+        with st.spinner("🚀 Ejecutando métodos de optimización..."):
+            if use_gd:
+                try:
+                    x_opt, hist, conv = gradient_descent(
+                        f, grad_f, x0, max_iter, tol, c1, c2, strong_wolfe)
+                    results['Gradiente']   = {'x': x_opt, 'f': f(x_opt),
+                                               'iters': len(hist)-1, 'converged': conv,
+                                               'grad_norm': hist[-1]['grad_norm']}
+                    histories['Gradiente'] = hist
+                except Exception as e:
+                    st.warning(f"⚠️ Descenso de Gradiente falló: {e}")
 
-with st.spinner("🚀 Ejecutando métodos de optimización..."):
-    if use_gd:
-        try:
-            x_opt, hist, conv = gradient_descent(
-                f, grad_f, x0, max_iter, tol, c1, c2, strong_wolfe)
-            results['Gradiente']   = {'x': x_opt, 'f': f(x_opt),
-                                       'iters': len(hist)-1, 'converged': conv,
-                                       'grad_norm': hist[-1]['grad_norm']}
-            histories['Gradiente'] = hist
-        except Exception as e:
-            st.warning(f"⚠️ Descenso de Gradiente falló: {e}")
+            if use_cg:
+                try:
+                    x_opt, hist, conv = conjugate_gradient(
+                        f, grad_f, x0, max_iter, tol, c1, c2, strong_wolfe)
+                    results['Gradiente Conjugado']   = {'x': x_opt, 'f': f(x_opt),
+                                                         'iters': len(hist)-1, 'converged': conv,
+                                                         'grad_norm': hist[-1]['grad_norm']}
+                    histories['Gradiente Conjugado'] = hist
+                except Exception as e:
+                    st.warning(f"⚠️ Gradiente Conjugado falló: {e}")
 
-    if use_cg:
-        try:
-            x_opt, hist, conv = conjugate_gradient(
-                f, grad_f, x0, max_iter, tol, c1, c2, strong_wolfe)
-            results['Gradiente Conjugado']   = {'x': x_opt, 'f': f(x_opt),
-                                                 'iters': len(hist)-1, 'converged': conv,
-                                                 'grad_norm': hist[-1]['grad_norm']}
-            histories['Gradiente Conjugado'] = hist
-        except Exception as e:
-            st.warning(f"⚠️ Gradiente Conjugado falló: {e}")
+            if use_nt:
+                try:
+                    x_opt, hist, conv = newton_method(
+                        f, grad_f, hess_f, x0, max_iter, tol, c1, c2, strong_wolfe)
+                    results['Newton']   = {'x': x_opt, 'f': f(x_opt),
+                                            'iters': len(hist)-1, 'converged': conv,
+                                            'grad_norm': hist[-1]['grad_norm']}
+                    histories['Newton'] = hist
+                except Exception as e:
+                    st.warning(f"⚠️ Newton falló: {e}")
 
-    if use_nt:
-        try:
-            x_opt, hist, conv = newton_method(
-                f, grad_f, hess_f, x0, max_iter, tol, c1, c2, strong_wolfe)
-            results['Newton']   = {'x': x_opt, 'f': f(x_opt),
-                                    'iters': len(hist)-1, 'converged': conv,
-                                    'grad_norm': hist[-1]['grad_norm']}
-            histories['Newton'] = hist
-        except Exception as e:
-            st.warning(f"⚠️ Newton falló: {e}")
-
-if not results:
-    st.error("❌ Ningún método pudo ejecutarse. Revisa la función y los parámetros.")
-    st.stop()
-
-
-# ── Resultados ────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">📊 Resultados</div>', unsafe_allow_html=True)
-
-cols = st.columns(len(results))
-for col, (method, res) in zip(cols, results.items()):
-    with col:
-        icon  = method_icons.get(method, '🔧')
-        x_str = ', '.join([f'{v:.6f}' for v in res['x']])
-
-        st.markdown(f"### {icon} {method}")
-
-        if res['converged']:
-            st.success("✅ Convergió")
+        if not results:
+            st.error("❌ Ningún método pudo ejecutarse. Revisa la función y los parámetros.")
         else:
-            st.error("⚠️ No convergió")
+            # ── Resultados ────────────────────────────────────────────────────
+            st.markdown('<div class="section-label">📊 Resultados</div>', unsafe_allow_html=True)
 
-        st.metric("f(x*) — valor óptimo",   f"{res['f']:.8f}")
-        st.metric("Iteraciones realizadas",  res['iters'])
-        st.metric("Error final ‖∇f(x*)‖",   f"{res['grad_norm']:.3e}")
-        st.caption(f"**Punto mínimo x*:** ({x_str})")
-        st.caption(f"**Criterio de parada:** {'‖∇f‖ ≤ ' + f'{tol:.0e}' if res['converged'] else 'Máx. iteraciones'}")
-        st.divider()
+            cols = st.columns(len(results))
+            for col, (method, res) in zip(cols, results.items()):
+                with col:
+                    icon  = method_icons.get(method, '🔧')
+                    x_str = ', '.join([f'{v:.6f}' for v in res['x']])
+                    st.markdown(f"### {icon} {method}")
+                    if res['converged']:
+                        st.success("✅ Convergió")
+                    else:
+                        st.error("⚠️ No convergió")
+                    st.metric("f(x*) — valor óptimo",   f"{res['f']:.8f}")
+                    st.metric("Iteraciones realizadas",  res['iters'])
+                    st.metric("Error final ‖∇f(x*)‖",   f"{res['grad_norm']:.3e}")
+                    st.caption(f"**Punto mínimo x*:** ({x_str})")
+                    st.caption(f"**Criterio de parada:** {'‖∇f‖ ≤ ' + f'{tol:.0e}' if res['converged'] else 'Máx. iteraciones'}")
+                    st.divider()
 
-        
+            # ── Gráfico de convergencia ───────────────────────────────────────
+            st.markdown('<div class="section-label">📈 Gráfico de Convergencia</div>', unsafe_allow_html=True)
+            st.plotly_chart(plot_convergence(histories), use_container_width=True)
 
+            # ── Trayectoria 2D ────────────────────────────────────────────────
+            if n_vars == 2:
+                st.markdown('<div class="section-label">🗺️ Trayectoria en el Espacio de Búsqueda</div>',
+                            unsafe_allow_html=True)
+                best_method = min(results, key=lambda k: results[k]['f'])
+                try:
+                    contour_fig = plot_contour(f, histories, results[best_method]['x'])
+                    st.plotly_chart(contour_fig, use_container_width=True)
+                except Exception as e:
+                    st.info(f"No se pudo generar el contorno: {e}")
 
-# ── Gráfico de convergencia ───────────────────────────────────────────────────
-st.markdown('<div class="section-label">📈 Gráfico de Convergencia</div>', unsafe_allow_html=True)
-st.plotly_chart(plot_convergence(histories), use_container_width=True)
+            # ── Tabla de iteraciones ──────────────────────────────────────────
+            with st.expander("📋 Ver tabla de iteraciones detallada"):
+                for method, history in histories.items():
+                    st.markdown(f"**{method_icons.get(method,'')} {method}** — {len(history)-1} iteraciones")
+                    step = max(1, len(history) // 60)
+                    rows = []
+                    for h in history[::step]:
+                        row = {
+                            'Iteración': h['iter'],
+                            'f(x)':      f"{h['f']:.8f}",
+                            '‖∇f(x)‖':   f"{h['grad_norm']:.4e}",
+                        }
+                        for j, xi in enumerate(h['x']):
+                            row[f'x{j+1}'] = f"{xi:.7f}"
+                        rows.append(row)
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, height=260)
+                    st.markdown("<br>", unsafe_allow_html=True)
 
+            # ── Comparación resumen ───────────────────────────────────────────
+            if len(results) > 1:
+                st.markdown('<div class="section-label">🏆 Comparación de Eficiencia</div>', unsafe_allow_html=True)
+                best_f    = min(results, key=lambda k: results[k]['f'])
+                fewest_it = min(results, key=lambda k: results[k]['iters'])
+                comp_rows = []
+                for method, res in results.items():
+                    comp_rows.append({
+                        'Método':      method,
+                        'Convergió':   '✅ Sí' if res['converged'] else '❌ No',
+                        'Iteraciones': res['iters'],
+                        'f(x*)':       f"{res['f']:.8f}",
+                        '‖∇f(x*)‖':   f"{res['grad_norm']:.3e}",
+                        'Eficiencia':  '🏆 Más rápido' if method == fewest_it else ('🎯 Mejor valor' if method == best_f else '—')
+                    })
+                st.dataframe(pd.DataFrame(comp_rows).set_index('Método'), use_container_width=True)
 
-# ── Trayectoria 2D ────────────────────────────────────────────────────────────
-if n_vars == 2:
-    st.markdown('<div class="section-label">🗺️ Trayectoria en el Espacio de Búsqueda</div>',
-                unsafe_allow_html=True)
-    best_method = min(results, key=lambda k: results[k]['f'])
-    try:
-        contour_fig = plot_contour(f, histories, results[best_method]['x'])
-        st.plotly_chart(contour_fig, use_container_width=True)
-    except Exception as e:
-        st.info(f"No se pudo generar el contorno: {e}")
-
-
-# ── Tabla de iteraciones ──────────────────────────────────────────────────────
-with st.expander("📋 Ver tabla de iteraciones detallada"):
-    for method, history in histories.items():
-        st.markdown(f"**{method_icons.get(method,'')} {method}** — {len(history)-1} iteraciones")
-
-        step = max(1, len(history) // 60)  # máximo ~60 filas
-        rows = []
-        for h in history[::step]:
-            row = {
-                'Iteración': h['iter'],
-                'f(x)':      f"{h['f']:.8f}",
-                '‖∇f(x)‖':   f"{h['grad_norm']:.4e}",
-            }
-            for j, xi in enumerate(h['x']):
-                row[f'x{j+1}'] = f"{xi:.7f}"
-            rows.append(row)
-
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=260)
-        st.markdown("<br>", unsafe_allow_html=True)
-
-
-# ── Comparación resumen ───────────────────────────────────────────────────────
-if len(results) > 1:
-    st.markdown('<div class="section-label">🏆 Comparación de Eficiencia</div>', unsafe_allow_html=True)
-
-    best_f    = min(results, key=lambda k: results[k]['f'])
-    fewest_it = min(results, key=lambda k: results[k]['iters'])
-
-    comp_rows = []
-    for method, res in results.items():
-        comp_rows.append({
-            'Método':       method,
-            'Convergió':    '✅ Sí' if res['converged'] else '❌ No',
-            'Iteraciones':  res['iters'],
-            'f(x*)':        f"{res['f']:.8f}",
-            '‖∇f(x*)‖':    f"{res['grad_norm']:.3e}",
-            'Eficiencia':   '🏆 Más rápido' if method == fewest_it else ('🎯 Mejor valor' if method == best_f else '—')
-        })
-
-    st.dataframe(pd.DataFrame(comp_rows).set_index('Método'),
-                 use_container_width=True)
-
-
-# ── Footer ────────────────────────────────────────────────────────────────────
-st.markdown("---")
-st.markdown("""
+            # ── Footer ────────────────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("""
 <div style="text-align:center; color:#484f58; font-size:0.82em; padding: 10px 0;">
     Implementado con Python · NumPy · SymPy · Plotly · Streamlit<br>
     Condiciones de Wolfe según <em>Nocedal & Wright — Numerical Optimization, 2ª ed.</em>
@@ -1089,11 +1061,10 @@ st.markdown("""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCIÓN DE VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
+# TAB 2 — OPTIMIZACIÓN RESTRINGIDA + KKT
 # ═══════════════════════════════════════════════════════════════════════════════
-
-st.markdown("---")
-st.markdown("""
+with tab2:
+    st.markdown("""
 <div class="app-header" style="margin-top:10px;">
     <div class="app-title" style="font-size:1.9em;">🔒 Optimización Restringida</div>
     <div class="app-sub">
@@ -1105,50 +1076,49 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-with st.expander("📖 ¿Qué son las condiciones KKT?", expanded=False):
-    st.markdown("""
-    Las **condiciones de Karush-Kuhn-Tucker (KKT)** son condiciones necesarias de optimalidad
-    para problemas de optimización con restricciones. Generalizan los multiplicadores de Lagrange
-    al caso con restricciones de desigualdad.
+    with st.expander("📖 ¿Qué son las condiciones KKT?", expanded=False):
+        st.markdown("""
+Las **condiciones de Karush-Kuhn-Tucker (KKT)** son condiciones necesarias de optimalidad
+para problemas de optimización con restricciones. Generalizan los multiplicadores de Lagrange
+al caso con restricciones de desigualdad.
 
-    Para el problema: **min f(x)** s.a. **gᵢ(x)=0**, **hⱼ(x)≤0**
+Para el problema: **min f(x)** s.a. **gᵢ(x)=0**, **hⱼ(x)≤0**
 
-    Un punto x* es óptimo local solo si existen multiplicadores λᵢ y μⱼ tales que:
+Un punto x* es óptimo local solo si existen multiplicadores λᵢ y μⱼ tales que:
 
-    | # | Condición | Expresión |
-    |---|-----------|-----------|
-    | 1 | **Estacionariedad** | ∇f(x*) + Σλᵢ∇gᵢ(x*) + Σμⱼ∇hⱼ(x*) = 0 |
-    | 2 | **Factibilidad primal (igualdad)** | gᵢ(x*) = 0 |
-    | 3 | **Factibilidad primal (desigualdad)** | hⱼ(x*) ≤ 0 |
-    | 4 | **Factibilidad dual** | μⱼ ≥ 0 |
-    | 5 | **Holgura complementaria** | μⱼ · hⱼ(x*) = 0 |
+| # | Condición | Expresión |
+|---|-----------|-----------|
+| 1 | **Estacionariedad** | ∇f(x*) + Σλᵢ∇gᵢ(x*) + Σμⱼ∇hⱼ(x*) = 0 |
+| 2 | **Factibilidad primal (igualdad)** | gᵢ(x*) = 0 |
+| 3 | **Factibilidad primal (desigualdad)** | hⱼ(x*) ≤ 0 |
+| 4 | **Factibilidad dual** | μⱼ ≥ 0 |
+| 5 | **Holgura complementaria** | μⱼ · hⱼ(x*) = 0 |
 
-    La condición 1 dice que los **gradientes deben ser paralelos** en el óptimo,
-    lo que se puede ver visualmente en el gráfico.
-    """)
+La condición 1 dice que los **gradientes deben ser paralelos** en el óptimo,
+lo que se puede ver visualmente en el gráfico.
+""")
 
-# ── Inputs ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">⚙️ Configuración del problema restringido</div>',
-            unsafe_allow_html=True)
+    st.markdown('<div class="section-label">⚙️ Configuración del problema restringido</div>',
+                unsafe_allow_html=True)
 
-kkt_col1, kkt_col2 = st.columns(2)
+    kkt_col1, kkt_col2 = st.columns(2)
 
-with kkt_col1:
-    kkt_f    = st.text_input("Función objetivo f(x, y)",
-                              value="x**2 + y**2",
-                              key="kkt_f",
-                              help="Variables: x e y")
-    kkt_x0   = st.text_input("Punto inicial (x, y)",
-                              value="0.5, 0.5", key="kkt_x0")
-    n_eq_kkt = st.number_input("Nº restricciones de igualdad   g(x,y) = 0",
-                                min_value=0, max_value=3, value=1, key="n_eq_kkt")
-    eq_inputs = []
-    for i in range(int(n_eq_kkt)):
-        val = "x + y - 1" if i == 0 else ""
-        eq_inputs.append(st.text_input(f"g{i+1}(x,y) = 0", value=val, key=f"eq_kkt_{i}"))
+    with kkt_col1:
+        kkt_f    = st.text_input("Función objetivo f(x, y)",
+                                  value="x**2 + y**2",
+                                  key="kkt_f",
+                                  help="Variables: x e y")
+        kkt_x0   = st.text_input("Punto inicial (x, y)",
+                                  value="0.5, 0.5", key="kkt_x0")
+        n_eq_kkt = st.number_input("Nº restricciones de igualdad   g(x,y) = 0",
+                                    min_value=0, max_value=3, value=1, key="n_eq_kkt")
+        eq_inputs = []
+        for i in range(int(n_eq_kkt)):
+            val = "x + y - 1" if i == 0 else ""
+            eq_inputs.append(st.text_input(f"g{i+1}(x,y) = 0", value=val, key=f"eq_kkt_{i}"))
 
-with kkt_col2:
-    st.markdown("""
+    with kkt_col2:
+        st.markdown("""
     <div class="card" style="margin-top:4px;">
         <div class="card-title">💡 Ejemplos para probar</div>
         <div class="card-sub">
@@ -1161,114 +1131,103 @@ with kkt_col2:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    n_ineq_kkt = st.number_input("Nº restricciones de desigualdad   h(x,y) ≤ 0",
-                                  min_value=0, max_value=3, value=0, key="n_ineq_kkt")
-    ineq_inputs = []
-    for i in range(int(n_ineq_kkt)):
-        val = "x**2 + y**2 - 4" if i == 0 else ""
-        ineq_inputs.append(st.text_input(f"h{i+1}(x,y) ≤ 0", value=val,
-                                          key=f"ineq_kkt_{i}"))
+        n_ineq_kkt = st.number_input("Nº restricciones de desigualdad   h(x,y) ≤ 0",
+                                      min_value=0, max_value=3, value=0, key="n_ineq_kkt")
+        ineq_inputs = []
+        for i in range(int(n_ineq_kkt)):
+            val = "x**2 + y**2 - 4" if i == 0 else ""
+            ineq_inputs.append(st.text_input(f"h{i+1}(x,y) ≤ 0", value=val,
+                                              key=f"ineq_kkt_{i}"))
 
-kkt_run = st.button("🔒 Resolver y verificar KKT", key="kkt_run")
+    kkt_run = st.button("🔒 Resolver y verificar KKT", key="kkt_run")
 
-# ── Solver ────────────────────────────────────────────────────────────────────
-if kkt_run:
-    try:
-        kkt_x0_arr = np.array([float(v.strip()) for v in kkt_x0.split(',')])
-        if len(kkt_x0_arr) != 2:
-            st.error("❌ El punto inicial debe tener exactamente 2 valores.")
-            st.stop()
-    except ValueError:
-        st.error("❌ Punto inicial inválido.")
-        st.stop()
+    if kkt_run:
+        _kkt_ok = True
+        kkt_x0_arr = None
 
-    if not (eq_inputs or ineq_inputs):
-        st.warning("⚠️ Agrega al menos una restricción para usar esta sección.")
-        st.stop()
-
-    with st.spinner("Resolviendo y verificando condiciones KKT..."):
         try:
-            sol = solve_kkt(kkt_f, eq_inputs, ineq_inputs, kkt_x0_arr)
-        except Exception as e:
-            st.error(f"❌ Error al resolver: {e}")
-            st.stop()
+            kkt_x0_arr = np.array([float(v.strip()) for v in kkt_x0.split(',')])
+            if len(kkt_x0_arr) != 2:
+                st.error("❌ El punto inicial debe tener exactamente 2 valores.")
+                _kkt_ok = False
+        except ValueError:
+            st.error("❌ Punto inicial inválido.")
+            _kkt_ok = False
 
-    # ── Resultado principal ───────────────────────────────────────────────────
-    st.markdown('<div class="section-label">📊 Solución</div>', unsafe_allow_html=True)
+        if _kkt_ok and not (eq_inputs or ineq_inputs):
+            st.warning("⚠️ Agrega al menos una restricción para usar esta sección.")
+            _kkt_ok = False
 
-    r1, r2, r3 = st.columns(3)
-    with r1:
-        st.metric("x*", f"({sol['x_star'][0]:.6f},  {sol['x_star'][1]:.6f})")
-    with r2:
-        st.metric("f(x*)", f"{sol['f_star']:.8f}")
-    with r3:
-        if sol['success']:
-            st.success("✅ Solución encontrada")
-        else:
-            st.warning(f"⚠️ {sol['message']}")
+        if _kkt_ok:
+            with st.spinner("Resolviendo y verificando condiciones KKT..."):
+                try:
+                    sol = solve_kkt(kkt_f, eq_inputs, ineq_inputs, kkt_x0_arr)
+                except Exception as e:
+                    st.error(f"❌ Error al resolver: {e}")
+                    _kkt_ok = False
 
-    # ── Multiplicadores ───────────────────────────────────────────────────────
-    if sol['mults']:
-        st.markdown('<div class="section-label">🔢 Multiplicadores</div>',
-                    unsafe_allow_html=True)
-        mcols = st.columns(len(sol['mults']))
-        for i, (col, val) in enumerate(zip(mcols, sol['mults'])):
-            label = f"λ{i+1}" if i < sol['n_eq'] else f"μ{i-sol['n_eq']+1}"
-            tipo  = "Igualdad" if i < sol['n_eq'] else "Desigualdad"
-            with col:
-                st.metric(f"{label}  ({tipo})", f"{val:.6f}")
+        if _kkt_ok:
+            st.markdown('<div class="section-label">📊 Solución</div>', unsafe_allow_html=True)
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                st.metric("x*", f"({sol['x_star'][0]:.6f},  {sol['x_star'][1]:.6f})")
+            with r2:
+                st.metric("f(x*)", f"{sol['f_star']:.8f}")
+            with r3:
+                if sol['success']:
+                    st.success("✅ Solución encontrada")
+                else:
+                    st.warning(f"⚠️ {sol['message']}")
 
-    # ── Condiciones KKT ───────────────────────────────────────────────────────
-    st.markdown('<div class="section-label">✅ Verificación de Condiciones KKT</div>',
-                unsafe_allow_html=True)
+            if sol['mults']:
+                st.markdown('<div class="section-label">🔢 Multiplicadores</div>',
+                            unsafe_allow_html=True)
+                mcols = st.columns(len(sol['mults']))
+                for i, (col, val) in enumerate(zip(mcols, sol['mults'])):
+                    label = f"λ{i+1}" if i < sol['n_eq'] else f"μ{i-sol['n_eq']+1}"
+                    tipo  = "Igualdad" if i < sol['n_eq'] else "Desigualdad"
+                    with col:
+                        st.metric(f"{label}  ({tipo})", f"{val:.6f}")
 
-    kkt = sol['kkt']
+            st.markdown('<div class="section-label">✅ Verificación de Condiciones KKT</div>',
+                        unsafe_allow_html=True)
 
-    def kkt_row(ok, val, name, formula, ideal):
-        icon = "✅" if ok else "❌"
-        return {"Condición": f"{icon} {name}", "Fórmula": formula,
-                "Valor": f"{val:.2e}", "¿Se cumple?": "Sí" if ok else "No",
-                "Ideal": ideal}
+            kkt_res = sol['kkt']
 
-    rows = []
-    ok1, v1 = kkt['stationarity']
-    rows.append(kkt_row(ok1, v1, "Estacionariedad",
-                        "‖∇f + Σλ∇g + Σμ∇h‖", "≈ 0"))
+            def kkt_row(ok, val, name, formula, ideal):
+                icon = "✅" if ok else "❌"
+                return {"Condición": f"{icon} {name}", "Fórmula": formula,
+                        "Valor": f"{val:.2e}", "¿Se cumple?": "Sí" if ok else "No",
+                        "Ideal": ideal}
 
-    for i, (ok, v) in enumerate(kkt['eq_feasibility']):
-        rows.append(kkt_row(ok, v,  f"Factib. primal g{i+1}",
-                            f"g{i+1}(x*) = 0", "= 0"))
+            kkt_rows = []
+            ok1, v1 = kkt_res['stationarity']
+            kkt_rows.append(kkt_row(ok1, v1, "Estacionariedad", "‖∇f + Σλ∇g + Σμ∇h‖", "≈ 0"))
+            for i, (ok, v) in enumerate(kkt_res['eq_feasibility']):
+                kkt_rows.append(kkt_row(ok, v, f"Factib. primal g{i+1}", f"g{i+1}(x*) = 0", "= 0"))
+            for i, (ok, v) in enumerate(kkt_res['ineq_feasibility']):
+                kkt_rows.append(kkt_row(ok, v, f"Factib. primal h{i+1}", f"h{i+1}(x*) ≤ 0", "≤ 0"))
+            for i, (ok, v) in enumerate(kkt_res['dual_feasibility']):
+                kkt_rows.append(kkt_row(ok, v, f"Factib. dual μ{i+1}", f"μ{i+1} ≥ 0", "≥ 0"))
+            for i, (ok, v) in enumerate(kkt_res['comp_slackness']):
+                kkt_rows.append(kkt_row(ok, v, f"Holgura complement. h{i+1}", f"|μ{i+1}·h{i+1}(x*)| ≈ 0", "≈ 0"))
 
-    for i, (ok, v) in enumerate(kkt['ineq_feasibility']):
-        rows.append(kkt_row(ok, v,  f"Factib. primal h{i+1}",
-                            f"h{i+1}(x*) ≤ 0", "≤ 0"))
+            st.dataframe(pd.DataFrame(kkt_rows).set_index("Condición"), use_container_width=True)
 
-    for i, (ok, v) in enumerate(kkt['dual_feasibility']):
-        rows.append(kkt_row(ok, v,  f"Factib. dual μ{i+1}",
-                            f"μ{i+1} ≥ 0", "≥ 0"))
+            all_ok = ok1 and all(o for o,_ in kkt_res['eq_feasibility']) \
+                         and all(o for o,_ in kkt_res['ineq_feasibility']) \
+                         and all(o for o,_ in kkt_res['dual_feasibility']) \
+                         and all(o for o,_ in kkt_res['comp_slackness'])
 
-    for i, (ok, v) in enumerate(kkt['comp_slackness']):
-        rows.append(kkt_row(ok, v,  f"Holgura complement. h{i+1}",
-                            f"|μ{i+1}·h{i+1}(x*)| ≈ 0", "≈ 0"))
+            if all_ok:
+                st.success("🏆 El punto x* satisface **todas** las condiciones KKT — es un candidato a óptimo.")
+            else:
+                st.warning("⚠️ Alguna condición KKT no se satisface. El solver puede no haber convergido.")
 
-    st.dataframe(pd.DataFrame(rows).set_index("Condición"),
-                 use_container_width=True)
-
-    all_ok = ok1 and all(o for o,_ in kkt['eq_feasibility']) \
-                 and all(o for o,_ in kkt['ineq_feasibility']) \
-                 and all(o for o,_ in kkt['dual_feasibility']) \
-                 and all(o for o,_ in kkt['comp_slackness'])
-
-    if all_ok:
-        st.success("🏆 El punto x* satisface **todas** las condiciones KKT — es un candidato a óptimo.")
-    else:
-        st.warning("⚠️ Alguna condición KKT no se satisface. El solver puede no haber convergido.")
-
-    # ── Gráfico ───────────────────────────────────────────────────────────────
-    st.markdown('<div class="section-label">🗺️ Visualización</div>', unsafe_allow_html=True)
-    try:
-        st.plotly_chart(plot_kkt_2d(sol), use_container_width=True)
-        st.markdown("""
+            st.markdown('<div class="section-label">🗺️ Visualización</div>', unsafe_allow_html=True)
+            try:
+                st.plotly_chart(plot_kkt_2d(sol), use_container_width=True)
+                st.markdown("""
 <div class="card" style="padding:14px 20px;">
     <div class="card-title">📌 Leyenda del gráfico</div>
     <div class="card-sub">
@@ -1281,5 +1240,8 @@ if kkt_run:
     </div>
 </div>
 """, unsafe_allow_html=True)
-    except Exception as e:
-        st.info(f"No se pudo generar el gráfico: {e}")
+                st.caption("Las flechas muestran los vectores gradiente escalados en x*. "
+                           "La condición de estacionariedad exige que **∇f = −Σλᵢ∇gᵢ − Σμⱼ∇hⱼ** "
+                           "(los vectores deben cancelarse entre sí).")
+            except Exception as e:
+                st.info(f"No se pudo generar el gráfico: {e}")
