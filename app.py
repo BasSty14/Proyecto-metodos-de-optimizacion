@@ -1129,7 +1129,7 @@ lo que se puede ver visualmente en el gráfico.
             <b>Producción (Cobb-Douglas):</b><br>
             f = -(x**0.5 * y**0.5) &nbsp;|&nbsp; g = 2*x+3*y-12=0
             <b></b><br>
-            No se debe agregar el =, > o <. En la seccion de igualdad o desigualdad, dado que la calculadora detecta desigualdades e igualdades, agregarle dichos caracteres generará un error.
+            *IMPORTANTE* No se debe agregar el =, > o <. En la seccion de igualdad o desigualdad, dado que la calculadora detecta desigualdades e igualdades, agregarle dichos caracteres generará un error.
         </div>
     </div>
     """, unsafe_allow_html=True)
