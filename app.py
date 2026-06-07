@@ -752,7 +752,7 @@ st.markdown("""
     <div class="app-title">📉 Optimización Numérica</div>
     <div class="app-sub">
         Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton · Multiplicadores de Lagrange<br>
-        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª) Y Optimización restringida por las condiciones de Karush-Kuhn-Tucker (KKT)</span>
+        <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª) Y Optimización restringida con las condiciones de Karush-Kuhn-Tucker (KKT)</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
