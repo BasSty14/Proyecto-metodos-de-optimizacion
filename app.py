@@ -224,313 +224,6 @@ def parse_and_build(expr_str: str, n_vars: int):
     return f, grad_f, hess_f, sym_vars, expr
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# BÚSQUEDA DE LÍNEA — CONDICIONES DE WOLFE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _zoom(f, grad_f, x, d, alpha_lo, alpha_hi, f0, g0, c1, c2, strong):
-    """Fase zoom del algoritmo de Wolfe (Nocedal & Wright, Alg. 3.6)."""
-    for _ in range(60):
-        alpha = (alpha_lo + alpha_hi) / 2.0
-        x_new = x + alpha * d
-        f_new = f(x_new)
-
-        if f_new > f0 + c1 * alpha * g0 or f_new >= f(x + alpha_lo * d):
-            alpha_hi = alpha
-        else:
-            g_new = np.dot(grad_f(x_new), d)
-            cond2 = abs(g_new) <= c2 * abs(g0) if strong else g_new >= c2 * g0
-            if cond2:
-                return alpha
-            if g_new * (alpha_hi - alpha_lo) >= 0:
-                alpha_hi = alpha_lo
-            alpha_lo = alpha
-
-    return (alpha_lo + alpha_hi) / 2.0
-
-
-def wolfe_line_search(f, grad_f, x, d, c1=1e-4, c2=0.9,
-                      strong=True, alpha_max=1.0):
-    """
-    Búsqueda de línea con condiciones de Wolfe.
-    - Primera condición  (Armijo):   f(x+αd) ≤ f(x) + c₁·α·∇f(x)ᵀd
-    - Segunda condición (curvatura): |∇f(x+αd)ᵀd| ≤ c₂·|∇f(x)ᵀd|  (strong)
-                                  o  ∇f(x+αd)ᵀd ≥ c₂·∇f(x)ᵀd      (weak)
-    """
-    alpha_prev = 0.0
-    alpha = min(1.0, alpha_max)
-    f0 = f(x)
-    g0 = np.dot(grad_f(x), d)
-
-    if g0 >= 0:
-        return 1e-10  # dirección no es de descenso
-
-    for i in range(100):
-        x_new  = x + alpha * d
-        f_new  = f(x_new)
-
-        if f_new > f0 + c1 * alpha * g0 or (i > 0 and f_new >= f(x + alpha_prev * d)):
-            return _zoom(f, grad_f, x, d, alpha_prev, alpha, f0, g0, c1, c2, strong)
-
-        g_new = np.dot(grad_f(x_new), d)
-
-        cond2 = abs(g_new) <= c2 * abs(g0) if strong else g_new >= c2 * g0
-        if cond2:
-            return alpha
-
-        if g_new >= 0:
-            return _zoom(f, grad_f, x, d, alpha, alpha_prev, f0, g0, c1, c2, strong)
-
-        alpha_prev = alpha
-        alpha = min(2.0 * alpha, alpha_max)
-
-    return alpha
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MÉTODOS DE OPTIMIZACIÓN
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def gradient_descent(f, grad_f, x0, max_iter, tol, c1, c2, strong):
-    """Descenso de Gradiente con búsqueda de línea de Wolfe."""
-    x    = x0.copy()
-    hist = []
-
-    for i in range(max_iter + 1):
-        g      = grad_f(x)
-        norm_g = np.linalg.norm(g)
-        hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
-
-        if norm_g <= tol:
-            break
-
-        d     = -g
-        alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
-        x     = x + alpha * d
-
-    
-
-    return x, hist, hist[-1]['grad_norm'] <= tol
-
-
-def conjugate_gradient(f, grad_f, x0, max_iter, tol, c1, c2, strong):
-    # CG necesita c2 < 0.5 en funciones no cuadráticas
-    # con c2=0.9 el line search acepta pasos de mala calidad
-    c2 = min(c2, 0.4)
-
-    x    = x0.copy()
-    g    = grad_f(x)
-    d    = -g.copy()
-    hist = []
-
-    for i in range(max_iter):
-        norm_g = np.linalg.norm(g)
-        hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
-
-        if norm_g <= tol:
-            break
-
-        # Si d dejó de ser dirección de descenso, reiniciar
-        if np.dot(g, d) >= 0:
-            d = -g.copy()
-
-        alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
-
-        # Si el paso es insignificante, forzar reinicio
-        if alpha < 1e-14:
-            d     = -g.copy()
-            alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
-
-        x_new = x + alpha * d
-        g_new = grad_f(x_new)
-
-        gg     = np.dot(g, g)
-        gg_new = np.dot(g_new, g_new)
-
-        if gg < 1e-30 or gg_new < 1e-30:
-            beta = 0.0
-        else:
-            # Polak-Ribière+
-            beta = max(0.0, np.dot(g_new, g_new - g) / gg)
-
-            # Criterio de reinicio de Powell:
-            # si los gradientes no son suficientemente ortogonales → reiniciar
-            if abs(np.dot(g_new, g)) / gg_new >= 0.1:
-                beta = 0.0
-
-        d = -g_new + beta * d
-        x = x_new
-        g = g_new
-
-    return x, hist, hist[-1]['grad_norm'] <= tol
-
-def newton_method(f, grad_f, hess_f, x0, max_iter, tol, c1, c2, strong):
-    """
-    Método de Newton con búsqueda de línea de Wolfe.
-    Usa modificación de la Hessiana (Cholesky con perturbación)
-    para garantizar dirección de descenso.
-    """
-    x    = x0.copy()
-    hist = []
-
-    for i in range(max_iter + 1):
-        g      = grad_f(x)
-        norm_g = np.linalg.norm(g)
-        hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
-
-        if norm_g <= tol:
-            break
-
-        H = hess_f(x)
-
-        # Modificación de Hessiana si no es definida positiva
-        beta_reg = 1e-6
-        for _ in range(50):
-            try:
-                eigs = np.linalg.eigvalsh(H)
-                if np.all(eigs > 1e-12):
-                    d = np.linalg.solve(H, -g)
-                    break
-                H = H + beta_reg * np.eye(len(x))
-                beta_reg *= 10
-            except np.linalg.LinAlgError:
-                H = H + beta_reg * np.eye(len(x))
-                beta_reg *= 10
-        else:
-            d = -g  # fallback
-
-        # Verificar que es dirección de descenso
-        if np.dot(g, d) >= 0:
-            d = -g
-
-        alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
-        x = x + alpha * d
-
-    
-
-    return x, hist, hist[-1]['grad_norm'] <= tol
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# GRÁFICOS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-COLORS = {
-    'Gradiente':           '#7c6af5',
-    'Gradiente Conjugado': '#4fc3f7',
-    'Newton':              '#f7b731',
-}
-
-DARK = dict(
-    paper_bgcolor='#0d1117',
-    plot_bgcolor='#161b22',
-    font=dict(color='#8b949e', size=13),
-    xaxis=dict(gridcolor='#21262d', linecolor='#30363d', title_font=dict(color='#c9d1d9')),
-    yaxis=dict(gridcolor='#21262d', linecolor='#30363d', title_font=dict(color='#c9d1d9')),
-    legend=dict(bgcolor='#1c2128', bordercolor='#30363d', borderwidth=1,
-                font=dict(color='#e6edf3')),
-)
-
-
-def plot_convergence(histories: dict) -> go.Figure:
-    """Curvas de convergencia: norma del gradiente y f(x) vs iteraciones."""
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=[
-            "‖∇f(x)‖ vs Iteraciones  (escala log)",
-            "f(x) vs Iteraciones"
-        ],
-        horizontal_spacing=0.10
-    )
-
-    for method, history in histories.items():
-        c    = COLORS.get(method, '#ffffff')
-        its  = [h['iter']     for h in history]
-        gnms = [h['grad_norm'] for h in history]
-        fvls = [h['f']         for h in history]
-
-        kw = dict(line=dict(color=c, width=2.5), mode='lines+markers',
-                  marker=dict(size=4, color=c))
-
-        fig.add_trace(go.Scatter(x=its, y=gnms, name=method, **kw), row=1, col=1)
-        fig.add_trace(go.Scatter(x=its, y=fvls, name=method,
-                                  showlegend=False,
-                                  line=dict(color=c, width=2.5, dash='dot'),
-                                  mode='lines+markers', marker=dict(size=4, color=c)),
-                      row=1, col=2)
-
-    fig.update_yaxes(type='log', row=1, col=1)
-    fig.update_layout(height=400, **DARK,
-                      margin=dict(t=50, b=30, l=40, r=20))
-    fig.update_annotations(font_color='#c9d1d9')
-    fig.update_xaxes(title_text="Iteración", row=1, col=1)
-    fig.update_xaxes(title_text="Iteración", row=1, col=2)
-    fig.update_yaxes(title_text="‖∇f(x)‖", row=1, col=1)
-    fig.update_yaxes(title_text="f(x)", row=1, col=2)
-    return fig
-
-
-def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
-    """Trayectorias sobre el mapa de contorno (solo para n=2)."""
-    all_x = np.vstack([h['x'] for hist in histories.values() for h in hist])
-    cx, cy = np.mean(all_x, axis=0)
-    pad    = max(2.5, np.ptp(all_x, axis=0).max() * 0.6)
-
-    x1r = np.linspace(cx - pad, cx + pad, 100)
-    x2r = np.linspace(cy - pad, cy + pad, 100)
-    X1, X2 = np.meshgrid(x1r, x2r)
-    Z = np.vectorize(lambda a, b: f(np.array([a, b])))(X1, X2)
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Contour(
-        x=x1r, y=x2r, z=Z,
-        colorscale='Plasma',
-        showscale=True,
-        contours=dict(coloring='heatmap', showlabels=True,
-                      labelfont=dict(size=10, color='white')),
-        opacity=0.55,
-        colorbar=dict(tickfont=dict(color='#8b949e'))
-    ))
-
-    for method, history in histories.items():
-        c  = COLORS.get(method, '#fff')
-        xs = [h['x'][0] for h in history]
-        ys = [h['x'][1] for h in history]
-        fig.add_trace(go.Scatter(
-            x=xs, y=ys, name=method, mode='lines+markers',
-            line=dict(color=c, width=2.2),
-            marker=dict(size=5, color=c, line=dict(color='#0d1117', width=0.5))
-        ))
-
-    fig.add_trace(go.Scatter(
-        x=[x_star[0]], y=[x_star[1]], name='x* (mínimo)',
-        mode='markers',
-        marker=dict(symbol='star', size=18, color='#f85149',
-                    line=dict(color='white', width=1))
-    ))
-
-    fig.update_layout(
-        title=dict(text='Trayectoria en el Espacio de Búsqueda',
-                   font=dict(color='#c9d1d9')),
-        xaxis_title='x₁', yaxis_title='x₂',
-        height=440, **DARK,
-        margin=dict(t=50, b=30, l=40, r=120),
-    )
-    fig.update_layout(
-        legend=dict(
-            bgcolor='#1c2128',
-            bordercolor='#30363d',
-            borderwidth=1,
-            font=dict(color='#e6edf3'),
-            orientation='h',
-            yanchor='bottom',
-            y=-0.2,
-            xanchor='center',
-            x=0.5
-        )
-    )
-    return fig
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VALOR AGREGADO — OPTIMIZACIÓN RESTRINGIDA + KKT
@@ -849,7 +542,314 @@ with tab1:
                 _ok = False
 
     if _ok:
-        # ... todo el resto: mostrar función, ejecutar métodos, gráficos, tablas, footer ...
+        # ═══════════════════════════════════════════════════════════════════════════════
+# BÚSQUEDA DE LÍNEA — CONDICIONES DE WOLFE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _zoom(f, grad_f, x, d, alpha_lo, alpha_hi, f0, g0, c1, c2, strong):
+    """Fase zoom del algoritmo de Wolfe (Nocedal & Wright, Alg. 3.6)."""
+    for _ in range(60):
+        alpha = (alpha_lo + alpha_hi) / 2.0
+        x_new = x + alpha * d
+        f_new = f(x_new)
+
+        if f_new > f0 + c1 * alpha * g0 or f_new >= f(x + alpha_lo * d):
+            alpha_hi = alpha
+        else:
+            g_new = np.dot(grad_f(x_new), d)
+            cond2 = abs(g_new) <= c2 * abs(g0) if strong else g_new >= c2 * g0
+            if cond2:
+                return alpha
+            if g_new * (alpha_hi - alpha_lo) >= 0:
+                alpha_hi = alpha_lo
+            alpha_lo = alpha
+
+    return (alpha_lo + alpha_hi) / 2.0
+
+
+def wolfe_line_search(f, grad_f, x, d, c1=1e-4, c2=0.9,
+                      strong=True, alpha_max=1.0):
+    """
+    Búsqueda de línea con condiciones de Wolfe.
+    - Primera condición  (Armijo):   f(x+αd) ≤ f(x) + c₁·α·∇f(x)ᵀd
+    - Segunda condición (curvatura): |∇f(x+αd)ᵀd| ≤ c₂·|∇f(x)ᵀd|  (strong)
+                                  o  ∇f(x+αd)ᵀd ≥ c₂·∇f(x)ᵀd      (weak)
+    """
+    alpha_prev = 0.0
+    alpha = min(1.0, alpha_max)
+    f0 = f(x)
+    g0 = np.dot(grad_f(x), d)
+
+    if g0 >= 0:
+        return 1e-10  # dirección no es de descenso
+
+    for i in range(100):
+        x_new  = x + alpha * d
+        f_new  = f(x_new)
+
+        if f_new > f0 + c1 * alpha * g0 or (i > 0 and f_new >= f(x + alpha_prev * d)):
+            return _zoom(f, grad_f, x, d, alpha_prev, alpha, f0, g0, c1, c2, strong)
+
+        g_new = np.dot(grad_f(x_new), d)
+
+        cond2 = abs(g_new) <= c2 * abs(g0) if strong else g_new >= c2 * g0
+        if cond2:
+            return alpha
+
+        if g_new >= 0:
+            return _zoom(f, grad_f, x, d, alpha, alpha_prev, f0, g0, c1, c2, strong)
+
+        alpha_prev = alpha
+        alpha = min(2.0 * alpha, alpha_max)
+
+    return alpha
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MÉTODOS DE OPTIMIZACIÓN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def gradient_descent(f, grad_f, x0, max_iter, tol, c1, c2, strong):
+    """Descenso de Gradiente con búsqueda de línea de Wolfe."""
+    x    = x0.copy()
+    hist = []
+
+    for i in range(max_iter + 1):
+        g      = grad_f(x)
+        norm_g = np.linalg.norm(g)
+        hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
+
+        if norm_g <= tol:
+            break
+
+        d     = -g
+        alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
+        x     = x + alpha * d
+
+    
+
+    return x, hist, hist[-1]['grad_norm'] <= tol
+
+
+def conjugate_gradient(f, grad_f, x0, max_iter, tol, c1, c2, strong):
+    # CG necesita c2 < 0.5 en funciones no cuadráticas
+    # con c2=0.9 el line search acepta pasos de mala calidad
+    c2 = min(c2, 0.4)
+
+    x    = x0.copy()
+    g    = grad_f(x)
+    d    = -g.copy()
+    hist = []
+
+    for i in range(max_iter):
+        norm_g = np.linalg.norm(g)
+        hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
+
+        if norm_g <= tol:
+            break
+
+        # Si d dejó de ser dirección de descenso, reiniciar
+        if np.dot(g, d) >= 0:
+            d = -g.copy()
+
+        alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
+
+        # Si el paso es insignificante, forzar reinicio
+        if alpha < 1e-14:
+            d     = -g.copy()
+            alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
+
+        x_new = x + alpha * d
+        g_new = grad_f(x_new)
+
+        gg     = np.dot(g, g)
+        gg_new = np.dot(g_new, g_new)
+
+        if gg < 1e-30 or gg_new < 1e-30:
+            beta = 0.0
+        else:
+            # Polak-Ribière+
+            beta = max(0.0, np.dot(g_new, g_new - g) / gg)
+
+            # Criterio de reinicio de Powell:
+            # si los gradientes no son suficientemente ortogonales → reiniciar
+            if abs(np.dot(g_new, g)) / gg_new >= 0.1:
+                beta = 0.0
+
+        d = -g_new + beta * d
+        x = x_new
+        g = g_new
+
+    return x, hist, hist[-1]['grad_norm'] <= tol
+
+def newton_method(f, grad_f, hess_f, x0, max_iter, tol, c1, c2, strong):
+    """
+    Método de Newton con búsqueda de línea de Wolfe.
+    Usa modificación de la Hessiana (Cholesky con perturbación)
+    para garantizar dirección de descenso.
+    """
+    x    = x0.copy()
+    hist = []
+
+    for i in range(max_iter + 1):
+        g      = grad_f(x)
+        norm_g = np.linalg.norm(g)
+        hist.append({'iter': i, 'x': x.copy(), 'f': f(x), 'grad_norm': norm_g})
+
+        if norm_g <= tol:
+            break
+
+        H = hess_f(x)
+
+        # Modificación de Hessiana si no es definida positiva
+        beta_reg = 1e-6
+        for _ in range(50):
+            try:
+                eigs = np.linalg.eigvalsh(H)
+                if np.all(eigs > 1e-12):
+                    d = np.linalg.solve(H, -g)
+                    break
+                H = H + beta_reg * np.eye(len(x))
+                beta_reg *= 10
+            except np.linalg.LinAlgError:
+                H = H + beta_reg * np.eye(len(x))
+                beta_reg *= 10
+        else:
+            d = -g  # fallback
+
+        # Verificar que es dirección de descenso
+        if np.dot(g, d) >= 0:
+            d = -g
+
+        alpha = wolfe_line_search(f, grad_f, x, d, c1, c2, strong)
+        x = x + alpha * d
+
+    
+
+    return x, hist, hist[-1]['grad_norm'] <= tol
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GRÁFICOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+COLORS = {
+    'Gradiente':           '#7c6af5',
+    'Gradiente Conjugado': '#4fc3f7',
+    'Newton':              '#f7b731',
+}
+
+DARK = dict(
+    paper_bgcolor='#0d1117',
+    plot_bgcolor='#161b22',
+    font=dict(color='#8b949e', size=13),
+    xaxis=dict(gridcolor='#21262d', linecolor='#30363d', title_font=dict(color='#c9d1d9')),
+    yaxis=dict(gridcolor='#21262d', linecolor='#30363d', title_font=dict(color='#c9d1d9')),
+    legend=dict(bgcolor='#1c2128', bordercolor='#30363d', borderwidth=1,
+                font=dict(color='#e6edf3')),
+)
+
+
+def plot_convergence(histories: dict) -> go.Figure:
+    """Curvas de convergencia: norma del gradiente y f(x) vs iteraciones."""
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=[
+            "‖∇f(x)‖ vs Iteraciones  (escala log)",
+            "f(x) vs Iteraciones"
+        ],
+        horizontal_spacing=0.10
+    )
+
+    for method, history in histories.items():
+        c    = COLORS.get(method, '#ffffff')
+        its  = [h['iter']     for h in history]
+        gnms = [h['grad_norm'] for h in history]
+        fvls = [h['f']         for h in history]
+
+        kw = dict(line=dict(color=c, width=2.5), mode='lines+markers',
+                  marker=dict(size=4, color=c))
+
+        fig.add_trace(go.Scatter(x=its, y=gnms, name=method, **kw), row=1, col=1)
+        fig.add_trace(go.Scatter(x=its, y=fvls, name=method,
+                                  showlegend=False,
+                                  line=dict(color=c, width=2.5, dash='dot'),
+                                  mode='lines+markers', marker=dict(size=4, color=c)),
+                      row=1, col=2)
+
+    fig.update_yaxes(type='log', row=1, col=1)
+    fig.update_layout(height=400, **DARK,
+                      margin=dict(t=50, b=30, l=40, r=20))
+    fig.update_annotations(font_color='#c9d1d9')
+    fig.update_xaxes(title_text="Iteración", row=1, col=1)
+    fig.update_xaxes(title_text="Iteración", row=1, col=2)
+    fig.update_yaxes(title_text="‖∇f(x)‖", row=1, col=1)
+    fig.update_yaxes(title_text="f(x)", row=1, col=2)
+    return fig
+
+
+def plot_contour(f, histories: dict, x_star: np.ndarray) -> go.Figure:
+    """Trayectorias sobre el mapa de contorno (solo para n=2)."""
+    all_x = np.vstack([h['x'] for hist in histories.values() for h in hist])
+    cx, cy = np.mean(all_x, axis=0)
+    pad    = max(2.5, np.ptp(all_x, axis=0).max() * 0.6)
+
+    x1r = np.linspace(cx - pad, cx + pad, 100)
+    x2r = np.linspace(cy - pad, cy + pad, 100)
+    X1, X2 = np.meshgrid(x1r, x2r)
+    Z = np.vectorize(lambda a, b: f(np.array([a, b])))(X1, X2)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Contour(
+        x=x1r, y=x2r, z=Z,
+        colorscale='Plasma',
+        showscale=True,
+        contours=dict(coloring='heatmap', showlabels=True,
+                      labelfont=dict(size=10, color='white')),
+        opacity=0.55,
+        colorbar=dict(tickfont=dict(color='#8b949e'))
+    ))
+
+    for method, history in histories.items():
+        c  = COLORS.get(method, '#fff')
+        xs = [h['x'][0] for h in history]
+        ys = [h['x'][1] for h in history]
+        fig.add_trace(go.Scatter(
+            x=xs, y=ys, name=method, mode='lines+markers',
+            line=dict(color=c, width=2.2),
+            marker=dict(size=5, color=c, line=dict(color='#0d1117', width=0.5))
+        ))
+
+    fig.add_trace(go.Scatter(
+        x=[x_star[0]], y=[x_star[1]], name='x* (mínimo)',
+        mode='markers',
+        marker=dict(symbol='star', size=18, color='#f85149',
+                    line=dict(color='white', width=1))
+    ))
+
+    fig.update_layout(
+        title=dict(text='Trayectoria en el Espacio de Búsqueda',
+                   font=dict(color='#c9d1d9')),
+        xaxis_title='x₁', yaxis_title='x₂',
+        height=440, **DARK,
+        margin=dict(t=50, b=30, l=40, r=120),
+    )
+    fig.update_layout(
+        legend=dict(
+            bgcolor='#1c2128',
+            bordercolor='#30363d',
+            borderwidth=1,
+            font=dict(color='#e6edf3'),
+            orientation='h',
+            yanchor='bottom',
+            y=-0.2,
+            xanchor='center',
+            x=0.5
+        )
+    )
+    return fig
+        
 # ── Página de bienvenida ──────────────────────────────────────────────────────
 if not run_btn:
     col1, col2, col3 = st.columns(3)
