@@ -1128,7 +1128,8 @@ lo que se puede ver visualmente en el gráfico.
             f = (x-3)**2+(y-2)**2 &nbsp;|&nbsp; h = x**2+y**2-4 ≤ 0<br><br>
             <b>Producción (Cobb-Douglas):</b><br>
             f = -(x**0.5 * y**0.5) &nbsp;|&nbsp; g = 2*x+3*y-12=0
-            <b>No se debe agregar el =, > o <</b><br>
+            <b>
+            No se debe agregar el =, > o <. En la seccion de igualdad o desigualdad.</b><br>
             Dado que la calculadora detecta desigualdades e igualdades, agregarle dichos caracteres generará un error.
         </div>
     </div>
