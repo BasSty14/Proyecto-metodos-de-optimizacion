@@ -1123,9 +1123,9 @@ lo que se puede ver visualmente en el gráfico.
         <div class="card-title">💡 Ejemplos para probar</div>
         <div class="card-sub">
             <b>Clásico Lagrange:</b><br>
-            f = x² + y² &nbsp;|&nbsp; g = x+y-1=0<br><br>
+            f = x**2 + y**2 &nbsp;|&nbsp; g = x+y-1=0<br><br>
             <b>Con desigualdad:</b><br>
-            f = (x-3)²+(y-2)² &nbsp;|&nbsp; h = x²+y²-4 ≤ 0<br><br>
+            f = (x-3)**2+(y-2)**2 &nbsp;|&nbsp; h = x**2+y**2-4 ≤ 0<br><br>
             <b>Producción (Cobb-Douglas):</b><br>
             f = -(x**0.5 * y**0.5) &nbsp;|&nbsp; g = 2*x+3*y-12=0
         </div>
