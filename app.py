@@ -765,9 +765,9 @@ with st.sidebar:
 
     st.markdown("**📐 Función objetivo**")
     default_fn = "(x1 - 2)**2 + (x2 - 3)**2" if n_vars >= 2 else "(x1 - 2)**2"
-    func_str = st.text_area(
+    func_str = st.text_input(
         f"f(x₁{',...,x'+str(n_vars) if n_vars>1 else ''})",
-        value=default_fn, height=80,
+        value=default_fn,
         help="Use x1, x2, ..., xn como variables.\nEjemplo: 100*(x2-x1**2)**2 + (1-x1)**2"
     )
 
