@@ -1123,23 +1123,35 @@ lo que se puede ver visualmente en el gráfico.
         <div class="card-title">💡 Ejemplos para probar</div>
         <div class="card-sub">
             <b>Clásico Lagrange:</b><br>
-            f = x**2 + y**2 &nbsp;|&nbsp; g = x+y-1=0<br><br>
-            <b>Con desigualdad:</b><br>
-            f = (x-3)**2+(y-2)**2 &nbsp;|&nbsp; h = x**2+y**2-4 ≤ 0<br><br>
+            f = <code>x**2 + y**2</code> &nbsp;|&nbsp; g = <code>x + y - 1</code><br><br>
+            <b>Desigualdad ≤ 0 (dentro de un círculo):</b><br>
+            f = <code>(x-3)**2 + (y-2)**2</code> &nbsp;|&nbsp; h = <code>x**2 + y**2 - 4</code>, elige ≤ 0<br><br>
+            <b>Desigualdad ≥ 0 (fuera de un círculo):</b><br>
+            f = <code>x**2 + y**2</code> &nbsp;|&nbsp; h = <code>x**2 + y**2 - 1</code>, elige ≥ 0<br><br>
             <b>Producción (Cobb-Douglas):</b><br>
-            f = -(x**0.5 * y**0.5) &nbsp;|&nbsp; g = 2*x+3*y-12=0
-            <b></b><br>
-            *IMPORTANTE* No se debe agregar el =, > o <. En la seccion de igualdad o desigualdad, dado que la calculadora detecta desigualdades e igualdades, agregarle dichos caracteres generará un error.
+            f = <code>-(x**0.5 * y**0.5)</code> &nbsp;|&nbsp; g = <code>2*x + 3*y - 12</code><br><br>
+            <span style="color:#f7b731;">⚠️ Escribe solo la expresión sin =, ≤ ni ≥. El tipo se elige con el selector.</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
-        n_ineq_kkt = st.number_input("Nº restricciones de desigualdad   h(x,y) ≤ 0",
+        n_ineq_kkt = st.number_input("Nº restricciones de desigualdad",
                                       min_value=0, max_value=3, value=0, key="n_ineq_kkt")
         ineq_inputs = []
         for i in range(int(n_ineq_kkt)):
-            val = "x**2 + y**2 - 4" if i == 0 else ""
-            ineq_inputs.append(st.text_input(f"h{i+1}(x,y) ≤ 0", value=val,
-                                              key=f"ineq_kkt_{i}"))
+            st.markdown(f"**h{i+1}(x,y)**")
+            ic1, ic2 = st.columns([3, 1])
+            with ic1:
+                val = "x**2 + y**2 - 4" if i == 0 else ""
+                expr_raw = st.text_input(f"Expresión h{i+1}", value=val,
+                                         key=f"ineq_kkt_{i}", label_visibility="collapsed")
+            with ic2:
+                direction = st.selectbox("Dirección", ["≤ 0", "≥ 0"],
+                                         key=f"ineq_dir_{i}", label_visibility="collapsed")
+            # Si ≥ 0, negamos para convertir a forma ≤ 0 internamente
+            if direction == "≥ 0" and expr_raw.strip():
+                ineq_inputs.append(f"-({expr_raw})")
+            else:
+                ineq_inputs.append(expr_raw)
 
     kkt_run = st.button("🔒 Resolver y verificar KKT", key="kkt_run")
 
