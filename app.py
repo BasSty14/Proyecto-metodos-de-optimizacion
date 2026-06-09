@@ -737,7 +737,7 @@ def plot_kkt_2d(data):
 # ── Encabezado ────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header">
-    <div class="app-title">📉 Optimización Numérica</div>
+    <div class="app-title">📉 Optimización Numérica · OptiVios 😎</div>
     <div class="app-sub">
         Descenso de Gradiente · Gradiente Conjugado (Polak-Ribière) · Método de Newton · Multiplicadores de Lagrange<br>
         <span style="color:#7c6af5; font-weight:600;">Búsqueda de línea con condiciones de Wolfe (1ª y 2ª) Y Optimización restringida con condiciones de Karush-Kuhn-Tucker (KKT)</span>
